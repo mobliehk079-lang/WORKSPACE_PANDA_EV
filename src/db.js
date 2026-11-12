@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const DATA_DIR = path.join(ROOT, 'data');
+// Where the database + uploads live. On Railway, attach a Volume: its mount path is picked up automatically.
+export const DATA_DIR = path.resolve(process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(ROOT, 'data'));
 export const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 export const DB_FILE = path.join(DATA_DIR, 'workspace.db');
 

@@ -27,6 +27,18 @@ Log in, change the password (profile menu → Change password), delete that file
 
 > Never run `npm run demo` on a server that is reachable from outside: the demo accounts share a public password.
 
+## Deploy on Railway
+
+1. **Add a Volume** to the service (right-click the service → *Attach volume*), mount path `/data`.
+   Without it, the database and uploaded files are **erased on every deploy**. The app finds the volume automatically (`RAILWAY_VOLUME_MOUNT_PATH`); you can also set `DATA_DIR`.
+2. **Variables** (service → Variables):
+   - `SUPERADMIN_PASSWORD` — password for the first super admin (only used when the database is empty)
+   - `SUPERADMIN_EMAIL` — optional, default `superadmin@panda-ev.com`
+3. **Networking → Generate Domain** to get a public `https://…up.railway.app` URL.
+4. Optional: *Settings → Healthcheck path* = `/health`.
+
+`PORT` is provided by Railway. HTTPS cookies, real client IPs (login rate limit) and the proxy host are handled automatically. Back up the volume regularly (it holds `workspace.db` and `uploads/`).
+
 ## Users & registration
 
 - **Super admin → ຜູ້ໃຊ້ / Users**: add users (a password is generated and copied for you), edit name/email/role/department, reset passwords, disable/enable accounts.

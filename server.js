@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import {
-  openDb, tx, ymd, localIso, addDays, isYmd, isLocalDateTime, hashPassword, verifyPassword, ROOT, UPLOAD_DIR,
+  openDb, tx, DATA_DIR, ymd, localIso, addDays, isYmd, isLocalDateTime, hashPassword, verifyPassword, ROOT, UPLOAD_DIR,
   EXT_KIND, EXT_MIME, DEPT_FILE_RULES, MAX_SIZE, extOf,
 } from './src/db.js';
 import { seedBase } from './src/seed.js';
@@ -77,8 +77,11 @@ const activeUser = (id) => { const u = userById(id); return u && u.status === 'a
 // Auth / registration
 // ======================================================================
 const attempts = new Map();
+const clientIp = (req) => String(req.headers['x-real-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '').trim();
+const isHttps = (req) => req.socket.encrypted || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+const cookie = (req, value, maxAge) => `${COOKIE}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`;
 function throttle(req, bucket, max = 20) {
-  const key = `${bucket}:${req.socket.remoteAddress || ''}`;
+  const key = `${bucket}:${clientIp(req)}`;
   const a = attempts.get(key) || { n: 0, t: Date.now() };
   if (Date.now() - a.t > 10 * 60_000) { a.n = 0; a.t = Date.now(); }
   if (a.n >= max) throw new HttpError(429, 'Too many attempts. Please wait a moment');
@@ -100,14 +103,14 @@ route('POST', '/api/login', async ({ req, res }) => {
   const token = crypto.randomBytes(32).toString('hex');
   db.prepare('INSERT INTO sessions (token,user_id,expires_at) VALUES (?,?,?)').run(token, u.id, Date.now() + SESSION_DAYS * 86400_000);
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
-  res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}`);
+  res.setHeader('Set-Cookie', cookie(req, token, SESSION_DAYS * 86400));
   return { ok: true };
 }, { public: true });
 
 route('POST', '/api/logout', ({ req, res }) => {
   const token = parseCookies(req.headers.cookie)[COOKIE];
   if (token) db.prepare('DELETE FROM sessions WHERE token=?').run(token);
-  res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.setHeader('Set-Cookie', cookie(req, '', 0));
   return { ok: true };
 }, { public: true });
 
@@ -679,9 +682,14 @@ const server = http.createServer(async (req, res) => {
       if (!user) throw new HttpError(401, 'Please log in');
       return serveUpload(req, res, user, Number(fm[1]), url.searchParams.get('download') === '1');
     }
+    if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url.pathname);
     // CSRF: state-changing requests must come from the same origin
-    if (req.method !== 'GET' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) throw new HttpError(403, 'Invalid origin');
+    if (req.method !== 'GET' && req.headers.origin) {
+      let o = ''; try { o = new URL(req.headers.origin).host; } catch { /* */ }
+      const hosts = [req.headers.host, ...String(req.headers['x-forwarded-host'] || '').split(',')].map((h) => String(h || '').trim()).filter(Boolean);
+      if (!hosts.includes(o)) throw new HttpError(403, 'Invalid origin');
+    }
     for (const r of routes) {
       if (r.method !== req.method) continue;
       const m = r.re.exec(url.pathname);
@@ -700,4 +708,6 @@ const server = http.createServer(async (req, res) => {
     if (req.readable) req.resume();
   }
 });
-server.listen(PORT, () => console.log(`\n  ⚡ PANDA EV WORKSPACE  →  http://localhost:${PORT}\n`));
+server.listen(PORT, () => console.log(`\n  ⚡ PANDA EV WORKSPACE  →  http://localhost:${PORT}   (data: ${DATA_DIR})\n`));
+// Railway sends SIGTERM on redeploy — close the database cleanly
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(); try { db.close(); } catch { /* */ } process.exit(0); });
