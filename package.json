@@ -1,0 +1,16 @@
+{
+  "name": "panda-ev-workspace",
+  "version": "1.0.0",
+  "description": "PANDA EV WORKSPACE — internal work management (tasks, workload, KPI, meetings)",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
+    "reset": "node --disable-warning=ExperimentalWarning src/seed.js --reset",
+    "demo": "node --disable-warning=ExperimentalWarning src/seed.js --demo"
+  }
+}
