@@ -1,7 +1,7 @@
 // Review queue for supervisors/managers: tasks "In review" on the left, a preview (video / photos / details) on the right
 import {
   S, api, esc, $, $$, icon, avatar, deptChip, deptVars, prioBadge, statusPill, dueBadge, fmtDate, timeAgo, lightbox, toast, toastErr,
-  setTitle, segmented, deptSegButtons, debounce, emptyState, dept, deptName, deptShort, DEPT_ICON, roleBadge, t,
+  setTitle, segmented, deptSegButtons, debounce, emptyState, dept, deptName, deptShort, DEPT_ICON, roleBadge, t, convertingBox,
 } from '../utils.js';
 import { openTask, fileCard, bindFileCards } from './taskModal.js';
 
@@ -23,6 +23,7 @@ export async function renderReview(page) {
   const st = { state: 'review', dept: 'all', q: '', items: [], sel: null, task: null };
   const wrap = $('#rv', page), listEl = $('#rv-list', page), detail = $('#rv-detail', page);
   let reqId = 0;
+  let pollTimer = null;
 
   const visible = () => {
     const q = st.q.toLowerCase();
@@ -60,22 +61,26 @@ export async function renderReview(page) {
       </span></button>`).join('');
   }
 
-  async function showDetail(id, { keepOpen = false } = {}) {
+  async function showDetail(id, { keepOpen = false, quiet = false } = {}) {
     st.sel = id;
     $$('.rv-item', listEl).forEach((b) => { const on = Number(b.dataset.id) === id; b.classList.toggle('sel', on); b.setAttribute('aria-selected', on); });
     if (!keepOpen) wrap.classList.toggle('open', id != null);
     if (id == null) { st.task = null; wrap.classList.remove('open'); detail.innerHTML = emptyState(t('Select a task on the left to review it'), 'eye'); return; }
     const my = ++reqId;
-    detail.innerHTML = '<div class="skeleton" style="min-height:420px"></div>';
+    clearTimeout(pollTimer);
+    if (!quiet) detail.innerHTML = '<div class="skeleton" style="min-height:420px"></div>';
     let task;
-    try { task = await api(`/api/tasks/${id}`); } catch (e) { if (my === reqId) detail.innerHTML = `<div class="empty">${icon('alert')}${esc(e.message)}</div>`; return; }
+    try { task = await api(`/api/tasks/${id}`); } catch (e) { if (my === reqId && !quiet) detail.innerHTML = `<div class="empty">${icon('alert')}${esc(e.message)}</div>`; return; }
     if (my !== reqId) return;
+    // Background refresh: only redraw once the conversion has finished (keeps the reviewer's typing/scroll otherwise)
+    if (quiet && task.files.some((f) => f.processing)) { st.task = task; pollTimer = setTimeout(() => { if (st.task?.id === id && detail.isConnected) showDetail(id, { keepOpen: true, quiet: true }); }, 6000); return; }
     st.task = task;
     drawDetail();
   }
 
   function mainMedia(f) {
     if (!f) return `<div class="rv-nomedia">${icon('image')}<span>${t('No video or photo attached')}</span></div>`;
+    if (f.processing) return convertingBox();
     return f.kind === 'video'
       ? `<video src="/files/${f.id}" controls preload="metadata" playsinline></video>`
       : `<img src="/files/${f.id}" alt="${esc(f.name)}" data-zoom="${f.id}" title="${t('Click to enlarge')}">`;
@@ -129,6 +134,9 @@ export async function renderReview(page) {
       </div>`;
     const files = $('#rv-files', detail);
     if (files) bindFileCards(files, x.files);
+    // A video is still being converted on the server → check again shortly
+    clearTimeout(pollTimer);
+    if (x.files.some((f) => f.processing)) pollTimer = setTimeout(() => { if (st.task?.id === x.id && detail.isConnected) showDetail(x.id, { keepOpen: true, quiet: true }); }, 6000);
   }
 
   async function act(action, note = '') {
@@ -211,7 +219,7 @@ export async function renderReview(page) {
   window.addEventListener('tw:changed', onChanged);
 
   await load();
-  return () => { document.removeEventListener('keydown', onKey); window.removeEventListener('tw:changed', onChanged); };
+  return () => { clearTimeout(pollTimer); document.removeEventListener('keydown', onKey); window.removeEventListener('tw:changed', onChanged); };
 }
 
 /** Sidebar badge with the number of tasks waiting for review */

@@ -37,6 +37,8 @@ Log in, change the password (profile menu → Change password), delete that file
 3. **Networking → Generate Domain** to get a public `https://…up.railway.app` URL.
 4. Optional: *Settings → Healthcheck path* = `/health`.
 
+Railway builds from the `Dockerfile` (Node 24 + **ffmpeg**). ffmpeg converts videos browsers cannot play — iPhone HEVC/H.265, 10-bit/HDR, `.mov` — to MP4/H.264 after upload (and once at start-up for older uploads). Running locally without ffmpeg is fine: videos are then kept as uploaded and a "cannot show this video" message with a download link replaces a black player.
+
 `PORT` is provided by Railway. HTTPS cookies, real client IPs (login rate limit) and the proxy host are handled automatically. Back up the volume regularly (it holds `workspace.db` and `uploads/`).
 
 ## Users & registration

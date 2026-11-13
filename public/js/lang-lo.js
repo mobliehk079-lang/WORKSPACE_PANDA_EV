@@ -377,4 +377,6 @@ export const LO = {
   'This browser cannot show this video': 'ບຣາວເຊີນີ້ສະແດງວິດີໂອນີ້ບໍ່ໄດ້',
   'The video is probably in HEVC/H.265 format (iPhone default). Download it to watch, or upload it again as MP4 (H.264).': 'ວິດີໂອນີ້ອາດເປັນຮູບແບບ HEVC/H.265 (ຄ່າເລີ່ມຕົ້ນຂອງ iPhone) — ດາວໂຫຼດມາເບິ່ງ ຫຼື ອັບໂຫຼດໃໝ່ເປັນ MP4 (H.264)',
   'On iPhone: Settings → Camera → Formats → Most Compatible': 'ໃນ iPhone: ການຕັ້ງຄ່າ → ກ້ອງຖ່າຍຮູບ → ຮູບແບບ → ເຂົ້າກັນໄດ້ຫຼາຍທີ່ສຸດ (Most Compatible)',
+  'Converting the video…': 'ກຳລັງແປງວິດີໂອ…',
+  'So it can play on every device. This takes a minute or two — the page updates by itself.': 'ເພື່ອໃຫ້ເປີດໄດ້ທຸກອຸປະກອນ ໃຊ້ເວລາ 1–2 ນາທີ — ໜ້ານີ້ຈະອັບເດດເອງ',
 };

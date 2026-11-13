@@ -260,6 +260,9 @@ export function watchVideos() {
   }, true);
 }
 
+/** Placeholder while the server converts a video to a format every browser can play */
+export const convertingBox = () => `<div class="vid-warn converting"><span class="spinner"></span><b>${t('Converting the video…')}</b><span>${t('So it can play on every device. This takes a minute or two — the page updates by itself.')}</span></div>`;
+
 export const FILE_STYLE = {
   pdf: ['PDF', 'linear-gradient(135deg,#f87171,#dc2626)'], sheet: ['XLS', 'linear-gradient(135deg,#34d399,#059669)'],
   doc: ['DOC', 'linear-gradient(135deg,#60a5fa,#2563eb)'], slide: ['PPT', 'linear-gradient(135deg,#fdba74,#ea580c)'],

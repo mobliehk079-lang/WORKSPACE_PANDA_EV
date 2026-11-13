@@ -2,7 +2,7 @@
 import {
   S, api, uploadFile, esc, $, $$, h, icon, toast, toastErr, openModal, confirmDialog, lightbox, avatar, deptChip, prioBadge,
   STATUS, PRIORITY, LOAD, PRESENCE, dueBadge, dueInfo, fmtDateTime, timeAgo, fmtSize, today, addDays, acceptFor, fileRuleLabel,
-  FILE_STYLE, deptName, roleBadge, t,
+  FILE_STYLE, deptName, roleBadge, t, convertingBox,
 } from '../utils.js';
 
 export const changed = () => window.dispatchEvent(new CustomEvent('tw:changed'));
@@ -114,7 +114,7 @@ export async function openTask(id) {
       </div>
 
       <div class="section"><h3>${icon('clip')} ${t('Attachments')} <span class="n">(${task.files.length})</span></h3>
-        ${media.length ? `<div class="media-grid" style="margin-bottom:12px">${media.map((f) => `<div class="media-video"><video src="/files/${f.id}" controls preload="metadata" playsinline></video>
+        ${media.length ? `<div class="media-grid" style="margin-bottom:12px">${media.map((f) => f.processing ? `<div class="media-video">${convertingBox()}</div>` : `<div class="media-video"><video src="/files/${f.id}" controls preload="metadata" playsinline></video>
           <div class="cap">${icon('video')}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span><a class="btn btn-sm" style="color:#fff;background:rgba(0,0,0,.35)" href="/files/${f.id}?download=1" title="${t('Download')}">${icon('download')}</a></div></div>`).join('')}</div>` : ''}
         ${others.length ? `<div class="media-grid" id="t-files">${others.map((f) => fileCard(f, { canDelete: f.uploaded_by === S.me.id || can.approve })).join('')}</div>` : ''}
         ${can.upload ? `<label class="dropzone" id="t-drop" style="display:block;margin-top:12px">${icon('upload')}<div>${t('Drop files here or')} <b>${t('click to choose')}</b></div><small>${esc(fileRuleLabel(task.dept_code))}</small>

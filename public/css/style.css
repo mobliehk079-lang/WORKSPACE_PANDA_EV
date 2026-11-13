@@ -654,3 +654,5 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .rv-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 22px 18px; border-top: 1px solid var(--hairline); }
 .rv-changes:not([hidden]) + .rv-actions { border-top: 0; }
 .rv-open { margin-left: auto; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+.vid-warn.converting { background: #1e1b4b; }
+.vid-warn .spinner { width: 34px; height: 34px; border-width: 3px; }

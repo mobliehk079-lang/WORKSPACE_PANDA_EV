@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
+import { execFile } from 'node:child_process';
 import {
   openDb, tx, DATA_DIR, ymd, localIso, addDays, isYmd, isLocalDateTime, hashPassword, verifyPassword, ROOT, UPLOAD_DIR,
   EXT_KIND, EXT_MIME, DEPT_FILE_RULES, MAX_SIZE, extOf,
@@ -329,7 +330,7 @@ route('GET', '/api/tasks', ({ user, query }) => {
 route('GET', '/api/tasks/:id', ({ user, params }) => {
   const t = getTask(Number(params.id));
   requireSeeTask(user, t);
-  const files = db.prepare('SELECT f.*, u.name uploader_name FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.task_id=? ORDER BY f.id DESC').all(t.id);
+  const files = db.prepare('SELECT f.*, u.name uploader_name FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.task_id=? ORDER BY f.id DESC').all(t.id).map(fileOut);
   const comments = db.prepare('SELECT c.*, u.name user_name, u.role user_role FROM comments c JOIN users u ON u.id=c.user_id WHERE c.task_id=? ORDER BY c.id').all(t.id);
   return { ...t, files, comments, members: taskMembers(t.id), can: taskPerms(user, t) };
 });
@@ -488,6 +489,69 @@ route('POST', '/api/tasks/:id/review', async ({ req, user, params }) => {
 });
 
 // ======================================================================
+// Video conversion — browsers (Chrome/Edge on Windows especially) cannot show HEVC/H.265 or 10-bit HDR video,
+// which is the iPhone default. When ffmpeg is installed (see Dockerfile), such uploads are converted to
+// MP4/H.264 in the background, one at a time. Without ffmpeg videos are kept exactly as uploaded.
+// ======================================================================
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
+let hasFfmpeg = false;
+const converting = new Set();
+let videoQueue = Promise.resolve();
+const run = (bin, args, timeout) => new Promise((resolve, reject) =>
+  execFile(bin, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => (err ? reject(Object.assign(err, { stderr })) : resolve(stdout))));
+
+/** null = fine as is; otherwise 'remux' (only the container is wrong) or 'encode' */
+async function videoNeeds(file, ext) {
+  let s;
+  try { s = JSON.parse(await run(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt', '-of', 'json', file], 30_000)).streams?.[0]; }
+  catch { return null; }
+  if (!s) return null; // no picture at all — nothing to convert
+  const codecOk = ['h264', 'vp8', 'vp9', 'av1'].includes(s.codec_name) && (!s.pix_fmt || s.pix_fmt === 'yuv420p');
+  const containerOk = ['mp4', 'm4v', 'webm'].includes(ext);
+  if (codecOk && containerOk) return null;
+  return codecOk && s.codec_name === 'h264' ? 'remux' : 'encode';
+}
+const fileOut = (f) => ({ ...f, processing: converting.has(f.id) });
+
+function queueVideo(id, mode) {
+  converting.add(id);
+  videoQueue = videoQueue.then(() => convertVideo(id, mode)
+    .catch((e) => console.error(`Video ${id} conversion failed:`, e.message, String(e.stderr || '').slice(-500)))
+    .finally(() => converting.delete(id)));
+}
+async function convertVideo(id, mode) {
+  const f = db.prepare('SELECT * FROM files WHERE id=?').get(id);
+  if (!f) return;
+  const src = path.join(UPLOAD_DIR, f.stored);
+  if (!fs.existsSync(src)) return;
+  const stored = `${crypto.randomBytes(16).toString('hex')}.mp4`;
+  const dest = path.join(UPLOAD_DIR, stored);
+  // Longest side at most 1920px, even dimensions; phone rotation is applied automatically
+  const scale = "scale='if(gte(iw,ih),min(1920,iw),-2)':'if(gte(iw,ih),-2,min(1920,ih))'";
+  const video = mode === 'remux' ? ['-c:v', 'copy'] : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-vf', scale];
+  const started = Date.now();
+  try {
+    await run(FFMPEG, ['-v', 'error', '-y', '-i', src, '-map', '0:v:0', '-map', '0:a:0?', ...video, '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', dest], 30 * 60_000);
+  } catch (e) { fs.rm(dest, { force: true }, () => {}); throw e; }
+  const size = fs.statSync(dest).size;
+  const name = f.name.replace(/\.[^.]+$/, '') + '.mp4';
+  const r = db.prepare("UPDATE files SET stored=?, name=?, mime='video/mp4', size=? WHERE id=? AND stored=?").run(stored, name, size, f.id, f.stored);
+  if (!r.changes) { fs.rm(dest, { force: true }, () => {}); return; } // deleted meanwhile
+  fs.rm(src, { force: true }, () => {});
+  console.log(`Video ${id} converted (${mode}) in ${Math.round((Date.now() - started) / 1000)}s: ${name}`);
+}
+/** On start: detect ffmpeg, then check every stored video once (fixes videos uploaded before conversion existed) */
+run(FFMPEG, ['-version'], 10_000).then(async () => {
+  hasFfmpeg = true;
+  console.log('  ffmpeg found: unplayable videos (HEVC/H.265, 10-bit, .mov) will be converted to MP4/H.264');
+  for (const f of db.prepare("SELECT id,stored FROM files WHERE kind='video'").all()) {
+    const mode = await videoNeeds(path.join(UPLOAD_DIR, f.stored), extOf(f.stored));
+    if (mode) queueVideo(f.id, mode);
+  }
+}, () => console.log('  ffmpeg not found: videos are kept exactly as uploaded'));
+
+// ======================================================================
 // Files
 // ======================================================================
 route('POST', '/api/tasks/:id/files', async ({ req, user, params }) => {
@@ -515,15 +579,16 @@ route('POST', '/api/tasks/:id/files', async ({ req, user, params }) => {
   if (!size) { fs.rm(dest, { force: true }, () => {}); throw bad('The file is empty'); }
   const id = Number(db.prepare('INSERT INTO files (task_id,dept_id,name,stored,mime,size,kind,uploaded_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
     .run(t.id, t.dept_id, name, stored, EXT_MIME[ext] || 'application/octet-stream', size, kind, user.id, localIso()).lastInsertRowid);
+  if (kind === 'video' && hasFfmpeg) { const mode = await videoNeeds(dest, ext); if (mode) queueVideo(id, mode); }
   if (t.assignee_id && t.assignee_id !== user.id) notify(t.assignee_id, 'file', '{name} attached a file to your task', `${t.title}: ${name}`, `#/task/${t.id}`, { name: user.name });
-  return db.prepare('SELECT f.*, u.name uploader_name FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.id=?').get(id);
+  return fileOut(db.prepare('SELECT f.*, u.name uploader_name FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.id=?').get(id));
 });
 
 route('GET', '/api/files', ({ user, query }) => {
   const depts = scopeDepts(db, user, query.get('dept'));
   const scope = taskScope(user);
   return db.prepare(`SELECT f.*, u.name uploader_name, t.title task_title, d.code dept_code FROM files f JOIN departments d ON d.id=f.dept_id
-    LEFT JOIN users u ON u.id=f.uploaded_by JOIN tasks t ON t.id=f.task_id WHERE f.dept_id IN (${inList(depts)}) AND ${scope.sql} ORDER BY f.id DESC`).all(...depts, ...scope.params);
+    LEFT JOIN users u ON u.id=f.uploaded_by JOIN tasks t ON t.id=f.task_id WHERE f.dept_id IN (${inList(depts)}) AND ${scope.sql} ORDER BY f.id DESC`).all(...depts, ...scope.params).map(fileOut);
 });
 /** A file is visible exactly when its task is */
 function canSeeFile(user, f) {
@@ -547,12 +612,16 @@ function serveUpload(req, res, user, id, download) {
   const file = path.join(UPLOAD_DIR, f.stored);
   if (!file.startsWith(UPLOAD_DIR) || !fs.existsSync(file)) throw new HttpError(404, 'File not found');
   const stat = fs.statSync(file);
+  // The stored name changes when a video is converted, so it doubles as a version tag: browsers revalidate (cheap 304)
+  const etag = `"${f.stored}"`;
+  if (req.headers['if-none-match'] === etag) { res.writeHead(304, { ETag: etag, 'Cache-Control': 'private, no-cache' }); return res.end(); }
   const headers = {
     'Content-Type': f.mime,
     'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
     'Accept-Ranges': 'bytes',
     'X-Content-Type-Options': 'nosniff',
-    'Cache-Control': 'private, max-age=3600',
+    'Cache-Control': 'private, no-cache',
+    ETag: etag,
   };
   // SVG/text may contain script — serve sandboxed (PDF must not be sandboxed or the browser viewer breaks)
   if (f.mime.startsWith('image/svg') || f.mime.startsWith('text/')) headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
