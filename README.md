@@ -49,9 +49,11 @@ Log in, change the password (profile menu → Change password), delete that file
 
 | | Super admin / Manager | Supervisor | Staff |
 |---|---|---|---|
-| See tasks & files | all departments | own department | own department |
+| See tasks & files | all departments | every task in own department | only tasks they are assigned to, created, or were added to as a coworker |
+| Choose coworkers on a task (same department) | ✓ | ✓ | if they are the assignee or creator |
 | Assign tasks | anyone | own department | self only |
 | Approve "Done" | ✓ | ✓ | ✗ (moves to "In review") |
+| **ກວດວຽກ / Review work** page (approve or send back with a note) | all departments | own department | ✗ |
 | Schedule meetings | anyone | own department | ✗ (can accept/decline) |
 | KPI | everyone | own team | self |
 | Manage users | super admin only | ✗ | ✗ |

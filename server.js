@@ -11,6 +11,7 @@ import {
 import { seedBase } from './src/seed.js';
 import {
   HttpError, deny, isAdmin, isSuper, canSeeDept, canManageDept, canEditTask, canDeleteTask, permissions, visibleDeptIds, scopeDepts, inList,
+  canSeeTask, canSetMembers, taskScope,
   membersWithLoad, sortByAvailability, workloadFor, kpiFor, kpiSeries,
 } from './src/logic.js';
 import { translate } from './src/i18n.js';
@@ -232,7 +233,10 @@ route('PATCH', '/api/admin/users/:id', async ({ req, user, params }) => {
     if ((f.status && f.status !== 'active') || f.password_hash || (deptId !== target.dept_id) || (f.role && f.role !== target.role))
       db.prepare('DELETE FROM sessions WHERE user_id=?').run(target.id);
     // Leaving a department → unassign open tasks there so nothing is stuck with someone who cannot see it
-    if (deptId !== target.dept_id) db.prepare("UPDATE tasks SET assignee_id=NULL WHERE assignee_id=? AND status!='done'").run(target.id);
+    if (deptId !== target.dept_id) {
+      db.prepare("UPDATE tasks SET assignee_id=NULL WHERE assignee_id=? AND status!='done'").run(target.id);
+      db.prepare('DELETE FROM task_members WHERE user_id=?').run(target.id);
+    }
   });
   return db.prepare(`SELECT ${USER_COLS} FROM users u LEFT JOIN departments d ON d.id=u.dept_id WHERE u.id=?`).get(target.id);
 });
@@ -246,7 +250,15 @@ route('GET', '/api/users', ({ user }) => {
     WHERE u.status='active' AND (u.dept_id IN (${inList(depts)}) OR u.role IN ('admin','superadmin')) ORDER BY u.dept_id, u.id`).all(...depts);
 });
 
-route('GET', '/api/team', ({ user, query }) => membersWithLoad(db, scopeDepts(db, user, query.get('dept'))));
+route('GET', '/api/team', ({ user, query }) => {
+  const depts = scopeDepts(db, user, query.get('dept'));
+  const list = membersWithLoad(db, depts);
+  if (user.role !== 'staff') return list;
+  // Staff see coworkers' workload numbers, but only the titles of tasks they are involved in
+  const scope = taskScope(user);
+  const mine = new Set(db.prepare(`SELECT t.id FROM tasks t WHERE t.dept_id IN (${inList(depts)}) AND ${scope.sql}`).all(...depts, ...scope.params).map((r) => r.id));
+  return list.map((m) => ({ ...m, current: m.current.filter((x) => mine.has(x.id)) }));
+});
 
 route('GET', '/api/assignable', ({ user, query }) => {
   const d = deptByCode(query.get('dept') || user.dept_code);
@@ -262,6 +274,7 @@ route('GET', '/api/assignable', ({ user, query }) => {
 const TASK_SELECT = `SELECT t.*, d.code dept_code, au.name assignee_name, au.presence assignee_presence, bu.name assigner_name,
   (SELECT COUNT(*) FROM files f WHERE f.task_id=t.id) file_count,
   (SELECT COUNT(*) FROM comments c WHERE c.task_id=t.id) comment_count,
+  (SELECT COUNT(*) FROM task_members m WHERE m.task_id=t.id) member_count,
   (SELECT f.id FROM files f WHERE f.task_id=t.id AND f.kind='image' ORDER BY f.id DESC LIMIT 1) cover_file_id
   FROM tasks t JOIN departments d ON d.id=t.dept_id LEFT JOIN users au ON au.id=t.assignee_id LEFT JOIN users bu ON bu.id=t.assigner_id`;
 
@@ -271,14 +284,39 @@ function getTask(id) {
   return t;
 }
 const taskPerms = (user, t) => ({
-  edit: canEditTask(user, t), assign: canManageDept(user, t.dept_id), approve: canManageDept(user, t.dept_id),
-  remove: canDeleteTask(user, t), upload: canSeeDept(user, t.dept_id),
+  edit: canEditTask(db, user, t), assign: canManageDept(user, t.dept_id), approve: canManageDept(user, t.dept_id),
+  remove: canDeleteTask(user, t), upload: canSeeTask(db, user, t), members: canSetMembers(user, t),
 });
+const NO_ACCESS = 'You do not have access to this task';
+const requireSeeTask = (user, t) => { if (!canSeeTask(db, user, t)) deny(NO_ACCESS); };
+const taskMembers = (id) => db.prepare('SELECT u.id,u.name,u.role,u.presence FROM task_members m JOIN users u ON u.id=m.user_id WHERE m.task_id=? ORDER BY u.name').all(id);
+
+/** Coworkers must be active staff/supervisors of the task's department; the assignee is left out (they see it anyway) */
+function validateMembers(deptId, ids, assigneeId) {
+  if (!Array.isArray(ids)) throw bad('Invalid request data');
+  const clean = [...new Set(ids.map(Number).filter((x) => Number.isInteger(x) && x !== assigneeId))].slice(0, 50);
+  for (const id of clean) {
+    const u = activeUser(id);
+    if (!u || u.dept_id !== deptId || !['staff', 'supervisor'].includes(u.role)) throw bad('Coworkers must be in the same department as the task');
+  }
+  return clean;
+}
+/** Replace the coworker list; returns the ids that were newly added */
+function setMembers(taskId, ids) {
+  const before = new Set(db.prepare('SELECT user_id FROM task_members WHERE task_id=?').all(taskId).map((r) => r.user_id));
+  if (ids.length) db.prepare(`DELETE FROM task_members WHERE task_id=? AND user_id NOT IN (${inList(ids)})`).run(taskId, ...ids);
+  else db.prepare('DELETE FROM task_members WHERE task_id=?').run(taskId);
+  for (const id of ids) db.prepare('INSERT OR IGNORE INTO task_members (task_id,user_id) VALUES (?,?)').run(taskId, id);
+  return ids.filter((id) => !before.has(id));
+}
+/** Everyone involved in a task except `exceptId` (for notifications) */
+const taskPeople = (t, exceptId) => [...new Set([t.assignee_id, t.assigner_id, t.created_by, ...taskMembers(t.id).map((m) => m.id)])].filter((x) => x && x !== exceptId);
 
 route('GET', '/api/tasks', ({ user, query }) => {
   const depts = scopeDepts(db, user, query.get('dept'));
-  const where = [`t.dept_id IN (${inList(depts)})`];
-  const params = [...depts];
+  const scope = taskScope(user);
+  const where = [`t.dept_id IN (${inList(depts)})`, scope.sql];
+  const params = [...depts, ...scope.params];
   const assignee = query.get('assignee');
   if (assignee === 'me') { where.push('t.assignee_id=?'); params.push(user.id); }
   else if (assignee) { where.push('t.assignee_id=?'); params.push(Number(assignee)); }
@@ -290,10 +328,10 @@ route('GET', '/api/tasks', ({ user, query }) => {
 
 route('GET', '/api/tasks/:id', ({ user, params }) => {
   const t = getTask(Number(params.id));
-  if (!canSeeDept(user, t.dept_id)) deny('You do not have access to this department');
+  requireSeeTask(user, t);
   const files = db.prepare('SELECT f.*, u.name uploader_name FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.task_id=? ORDER BY f.id DESC').all(t.id);
   const comments = db.prepare('SELECT c.*, u.name user_name, u.role user_role FROM comments c JOIN users u ON u.id=c.user_id WHERE c.task_id=? ORDER BY c.id').all(t.id);
-  return { ...t, files, comments, can: taskPerms(user, t) };
+  return { ...t, files, comments, members: taskMembers(t.id), can: taskPerms(user, t) };
 });
 
 function validateAssignee(user, deptId, assigneeId) {
@@ -318,20 +356,29 @@ route('POST', '/api/tasks', async ({ req, user }) => {
   let status = STATUS.includes(b.status) ? b.status : 'todo';
   if (status === 'done' && !canManageDept(user, dept.id)) status = 'todo';
   const assigneeId = validateAssignee(user, dept.id, int(b.assignee_id) ?? (user.role === 'staff' ? user.id : null));
+  const memberIds = validateMembers(dept.id, b.member_ids ?? [], assigneeId).filter((x) => x !== user.id);
   const now = localIso();
   const sort = (db.prepare('SELECT MIN(sort) m FROM tasks WHERE dept_id=? AND status=?').get(dept.id, status).m ?? 1) - 1;
   const id = Number(db.prepare(`INSERT INTO tasks (title,description,dept_id,assignee_id,assigner_id,created_by,start_date,due_date,completed_at,priority,status,progress,sort,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(title, str(b.description), dept.id, assigneeId, user.id, user.id, start, due,
     status === 'done' ? now : null, priority, status, status === 'done' ? 100 : Math.max(0, Math.min(100, int(b.progress) || 0)), sort, now, now).lastInsertRowid);
+  setMembers(id, memberIds);
   if (assigneeId && assigneeId !== user.id) notify(assigneeId, 'assign', '{name} assigned you a task', title, `#/task/${id}`, { name: user.name });
+  for (const m of memberIds) notify(m, 'member', '{name} added you to a task', title, `#/task/${id}`, { name: user.name });
   return getTask(id);
 });
 
 route('PATCH', '/api/tasks/:id', async ({ req, user, params }) => {
   const t = getTask(Number(params.id));
-  if (!canSeeDept(user, t.dept_id)) deny();
-  if (!canEditTask(user, t)) deny('You can only edit tasks you are responsible for or created');
+  requireSeeTask(user, t);
+  if (!canEditTask(db, user, t)) deny('You can only edit tasks you are responsible for or created');
   const b = await readJson(req);
+  let memberIds = null;
+  if ('member_ids' in b) {
+    if (!canSetMembers(user, t)) deny('Only the assignee, the creator or a supervisor can choose coworkers');
+    const aid = 'assignee_id' in b ? int(b.assignee_id) : t.assignee_id;
+    memberIds = validateMembers(t.dept_id, b.member_ids, aid);
+  }
   const manager = canManageDept(user, t.dept_id);
   const up = {};
   if ('title' in b) { up.title = str(b.title, 200); if (!up.title) throw bad('Please enter a task name'); }
@@ -365,6 +412,7 @@ route('PATCH', '/api/tasks/:id', async ({ req, user, params }) => {
   }
   const link = `#/task/${t.id}`;
   const title = up.title || t.title;
+  if (memberIds) for (const m of setMembers(t.id, memberIds)) if (m !== user.id) notify(m, 'member', '{name} added you to a task', title, link, { name: user.name });
   if (up.assignee_id && up.assignee_id !== user.id) notify(up.assignee_id, 'assign', '{name} assigned you a task', title, link, { name: user.name });
   if (up.status === 'review')
     for (const l of db.prepare("SELECT id FROM users WHERE role='supervisor' AND status='active' AND dept_id=? AND id!=?").all(t.dept_id, user.id))
@@ -386,13 +434,57 @@ route('DELETE', '/api/tasks/:id', ({ user, params }) => {
 
 route('POST', '/api/tasks/:id/comments', async ({ req, user, params }) => {
   const t = getTask(Number(params.id));
-  if (!canSeeDept(user, t.dept_id)) deny();
+  requireSeeTask(user, t);
   const body = str((await readJson(req)).body, 3000);
   if (!body) throw bad('Please type a message');
   const id = Number(db.prepare('INSERT INTO comments (task_id,user_id,body,created_at) VALUES (?,?,?,?)').run(t.id, user.id, body, localIso()).lastInsertRowid);
-  for (const uid of new Set([t.assignee_id, t.assigner_id].filter((x) => x && x !== user.id)))
+  for (const uid of taskPeople(t, user.id))
     notify(uid, 'comment', '{name} commented', `${t.title}: ${body.slice(0, 80)}`, `#/task/${t.id}`, { name: user.name });
   return db.prepare('SELECT c.*, u.name user_name, u.role user_role FROM comments c JOIN users u ON u.id=c.user_id WHERE c.id=?').get(id);
+});
+
+// ======================================================================
+// Review queue — supervisors/managers check work submitted "In review"
+// ======================================================================
+/** Departments whose work this user can approve */
+const reviewDepts = (user) => visibleDeptIds(db, user).filter((id) => canManageDept(user, id));
+const MEDIA_COLS = `,
+  (SELECT f.id FROM files f WHERE f.task_id=t.id AND f.kind IN ('video','image') ORDER BY f.kind='video' DESC, f.id DESC LIMIT 1) media_id,
+  (SELECT f.kind FROM files f WHERE f.task_id=t.id AND f.kind IN ('video','image') ORDER BY f.kind='video' DESC, f.id DESC LIMIT 1) media_kind
+  FROM tasks t`;
+const REVIEW_SELECT = TASK_SELECT.replace(/\n\s*FROM tasks t/, MEDIA_COLS);
+
+route('GET', '/api/review', ({ user, query }) => {
+  if (user.role === 'staff') deny('Only supervisors and managers can review tasks');
+  const allowed = reviewDepts(user);
+  const depts = scopeDepts(db, user, query.get('dept')).filter((id) => allowed.includes(id));
+  if (query.get('state') === 'done')
+    return db.prepare(`${REVIEW_SELECT} WHERE t.dept_id IN (${inList(depts)}) AND t.status='done' AND t.completed_at >= ? ORDER BY t.completed_at DESC LIMIT 100`)
+      .all(...depts, addDays(ymd(), -30));
+  // Oldest submission first — it has waited the longest
+  return db.prepare(`${REVIEW_SELECT} WHERE t.dept_id IN (${inList(depts)}) AND t.status='review' ORDER BY t.updated_at, t.id`).all(...depts);
+});
+
+route('POST', '/api/tasks/:id/review', async ({ req, user, params }) => {
+  const t = getTask(Number(params.id));
+  if (!canManageDept(user, t.dept_id)) deny('Only supervisors and managers can review tasks');
+  if (t.status !== 'review') throw new HttpError(409, 'This task is no longer waiting for review');
+  const b = await readJson(req);
+  const note = str(b.note, 3000);
+  if (!['approve', 'changes'].includes(b.action)) throw bad('Invalid request data');
+  if (b.action === 'changes' && !note) throw bad('Please write what needs to be changed');
+  const now = localIso();
+  tx(db, () => {
+    if (b.action === 'approve') db.prepare("UPDATE tasks SET status='done', completed_at=?, progress=100, updated_at=? WHERE id=?").run(now, now, t.id);
+    else db.prepare("UPDATE tasks SET status='doing', completed_at=NULL, updated_at=? WHERE id=?").run(now, t.id);
+    if (note) db.prepare('INSERT INTO comments (task_id,user_id,body,created_at) VALUES (?,?,?,?)').run(t.id, user.id, b.action === 'changes' ? `↩ ${note}` : note, now);
+  });
+  const link = `#/task/${t.id}`;
+  if (t.assignee_id && t.assignee_id !== user.id) {
+    if (b.action === 'approve') notify(t.assignee_id, 'done', 'Your task was approved 🎉', t.title, link);
+    else notify(t.assignee_id, 'changes', '{name} asked for changes', `${t.title}: ${note.slice(0, 80)}`, link, { name: user.name });
+  }
+  return getTask(t.id);
 });
 
 // ======================================================================
@@ -400,7 +492,7 @@ route('POST', '/api/tasks/:id/comments', async ({ req, user, params }) => {
 // ======================================================================
 route('POST', '/api/tasks/:id/files', async ({ req, user, params }) => {
   const t = getTask(Number(params.id));
-  if (!canSeeDept(user, t.dept_id)) deny('You can only upload files to tasks in your own department');
+  if (!canSeeTask(db, user, t)) deny('You can only upload files to tasks you can see');
   let name;
   try { name = decodeURIComponent(String(req.headers['x-file-name'] || '')); } catch { name = ''; }
   name = path.basename(name).replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_').slice(0, 180);
@@ -429,14 +521,20 @@ route('POST', '/api/tasks/:id/files', async ({ req, user, params }) => {
 
 route('GET', '/api/files', ({ user, query }) => {
   const depts = scopeDepts(db, user, query.get('dept'));
+  const scope = taskScope(user);
   return db.prepare(`SELECT f.*, u.name uploader_name, t.title task_title, d.code dept_code FROM files f JOIN departments d ON d.id=f.dept_id
-    LEFT JOIN users u ON u.id=f.uploaded_by LEFT JOIN tasks t ON t.id=f.task_id WHERE f.dept_id IN (${inList(depts)}) ORDER BY f.id DESC`).all(...depts);
+    LEFT JOIN users u ON u.id=f.uploaded_by JOIN tasks t ON t.id=f.task_id WHERE f.dept_id IN (${inList(depts)}) AND ${scope.sql} ORDER BY f.id DESC`).all(...depts, ...scope.params);
 });
+/** A file is visible exactly when its task is */
+function canSeeFile(user, f) {
+  const t = f.task_id ? db.prepare('SELECT * FROM tasks WHERE id=?').get(f.task_id) : null;
+  return t ? canSeeTask(db, user, t) : canManageDept(user, f.dept_id);
+}
 
 route('DELETE', '/api/files/:id', ({ user, params }) => {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(Number(params.id));
   if (!f) throw new HttpError(404, 'File not found');
-  if (!canSeeDept(user, f.dept_id) || !(f.uploaded_by === user.id || canManageDept(user, f.dept_id))) deny('You can only delete files you uploaded');
+  if (!canSeeFile(user, f) || !(f.uploaded_by === user.id || canManageDept(user, f.dept_id))) deny('You can only delete files you uploaded');
   db.prepare('DELETE FROM files WHERE id=?').run(f.id);
   fs.rm(path.join(UPLOAD_DIR, f.stored), { force: true }, () => {});
   return { ok: true };
@@ -445,7 +543,7 @@ route('DELETE', '/api/files/:id', ({ user, params }) => {
 function serveUpload(req, res, user, id, download) {
   const f = db.prepare('SELECT * FROM files WHERE id=?').get(id);
   if (!f) throw new HttpError(404, 'File not found');
-  if (!canSeeDept(user, f.dept_id)) deny('You do not have access to this file');
+  if (!canSeeFile(user, f)) deny('You do not have access to this file');
   const file = path.join(UPLOAD_DIR, f.stored);
   if (!file.startsWith(UPLOAD_DIR) || !fs.existsSync(file)) throw new HttpError(404, 'File not found');
   const stat = fs.statSync(file);
@@ -564,7 +662,12 @@ route('GET', '/api/notifications', ({ user }) => {
   generateReminders(user);
   const items = db.prepare('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40').all(user.id);
   const unread = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id=? AND is_read=0').get(user.id).c;
-  return { items, unread };
+  const out = { items, unread };
+  if (user.role !== 'staff') {
+    const depts = reviewDepts(user);
+    out.reviewCount = db.prepare(`SELECT COUNT(*) c FROM tasks WHERE status='review' AND dept_id IN (${inList(depts)})`).get(...depts).c;
+  }
+  return out;
 });
 route('POST', '/api/notifications/read', async ({ req, user }) => {
   const { id } = await readJson(req);
@@ -602,7 +705,8 @@ route('GET', '/api/kpi', ({ user, query }) => {
 route('GET', '/api/dashboard', ({ user, query }) => {
   const today = ymd();
   const depts = scopeDepts(db, user, query.get('dept'));
-  const all = db.prepare(`${TASK_SELECT} WHERE t.dept_id IN (${inList(depts)})`).all(...depts);
+  const scope = taskScope(user);
+  const all = db.prepare(`${TASK_SELECT} WHERE t.dept_id IN (${inList(depts)}) AND ${scope.sql}`).all(...depts, ...scope.params);
   const open = all.filter((t) => t.status !== 'done');
   const byStatus = Object.fromEntries(STATUS.map((s) => [s, s === 'done'
     ? all.filter((t) => t.status === 'done' && t.completed_at >= addDays(today, -30)).length

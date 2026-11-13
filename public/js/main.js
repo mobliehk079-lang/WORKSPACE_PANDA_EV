@@ -12,6 +12,7 @@ import { renderKpi } from './views/kpi.js';
 import { renderMeetings } from './views/meetings.js';
 import { renderUsers } from './views/users.js';
 import { openTask } from './views/taskModal.js';
+import { renderReview, setBadge as setReviewBadge } from './views/review.js';
 
 const app = $('#app');
 let cleanup = null;
@@ -108,6 +109,7 @@ function navHtml() {
       ${link('#/tasks', 'kanban', p.seeAllDepts ? t('All plans') : t('Tasks'))}
       ${link('#/calendar', 'calendar', t('Calendar'))}
       ${link('#/meetings', 'meeting', t('Meetings'), '<span class="count" id="meet-count" hidden></span>')}
+      ${p.approveDone ? link('#/review', 'checkCircle', t('Review work'), '<span class="count" id="review-count" hidden></span>') : ''}
     </nav>
     <div class="nav-label">${p.seeAllDepts ? t('Department workspaces') : t('My department')}</div>
     <nav class="nav">${S.depts.filter((d) => d.visible).map((d) => `<a href="#/dept/${d.code}" data-nav="#/dept/${d.code}" title="${esc(deptShort(d))}"><span class="dept-dot" style="background:linear-gradient(135deg,${d.color},${d.color2})"></span>${icon(DEPT_ICON[d.code])}<span class="nl">${esc(deptShort(d))}</span></a>`).join('')}</nav>
@@ -217,7 +219,8 @@ const NOTI_STYLE = {
   comment: ['message', 'linear-gradient(135deg,#a78bfa,#7c3aed)'], file: ['clip', 'linear-gradient(135deg,#f472b6,#db2777)'],
   meeting: ['meeting', 'linear-gradient(135deg,#818cf8,#7c3aed)'], 'meeting-soon': ['clock', 'linear-gradient(135deg,#818cf8,#7c3aed)'],
   rsvp: ['check', 'linear-gradient(135deg,#22d3ee,#0891b2)'], due: ['hourglass', 'linear-gradient(135deg,#fbbf24,#d97706)'],
-  overdue: ['alert', 'linear-gradient(135deg,#f87171,#dc2626)'], register: ['userPlus', 'linear-gradient(135deg,#a78bfa,#db2777)'],
+  overdue: ['alert', 'linear-gradient(135deg,#f87171,#dc2626)'], changes: ['edit', 'linear-gradient(135deg,#fb923c,#ea580c)'],
+  member: ['users', 'linear-gradient(135deg,#60a5fa,#7c3aed)'], register: ['userPlus', 'linear-gradient(135deg,#a78bfa,#db2777)'],
 };
 function notiTitle(n) {
   let p = {};
@@ -239,6 +242,7 @@ async function pollNotifications() {
       if (urgent) toast(t('You have {n} tasks due soon or overdue', { n: `<b>${urgent}</b>` }), 'info', { onClick: toggleNotifications, ms: 6000 });
     }
     lastUnread = notiCache.unread;
+    if ('reviewCount' in notiCache) setReviewBadge(notiCache.reviewCount);
     const pending = notiCache.items.filter((x) => x.type === 'meeting' && !x.is_read).length;
     const mc = $('#meet-count'); if (mc) { mc.hidden = !pending; mc.textContent = pending; }
     if (S.perms.manageUsers) {
@@ -278,6 +282,7 @@ const ROUTES = [
   [/^#\/team$/, renderTeam],
   [/^#\/kpi$/, renderKpi],
   [/^#\/meetings$/, renderMeetings],
+  [/^#\/review$/, renderReview],
   [/^#\/users$/, renderUsers],
 ];
 
@@ -291,7 +296,7 @@ async function route() {
     return openTask(Number(tm[1]));
   }
   const r = ROUTES.find(([re]) => re.test(hash));
-  if (!r) { location.hash = '#/dashboard'; return; }
+  if (!r || (hash === '#/review' && !S.perms.approveDone)) { location.hash = '#/dashboard'; return; }
   lastHash = hash;
   const [re, fn] = r;
   const params = hash.match(re).slice(1);

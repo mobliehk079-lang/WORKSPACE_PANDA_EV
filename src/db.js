@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS files (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_files_task ON files(task_id);
+-- Coworkers (same department) who can see and work on a task besides the assignee/creator
+CREATE TABLE IF NOT EXISTS task_members (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS ix_task_members_user ON task_members(user_id);
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY,
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -126,7 +133,7 @@ export function openDb(file = DB_FILE) {
     // โครงสร้างเปลี่ยน — ล้างข้อมูลเดโมเก่าแล้วสร้างใหม่
     console.log('Database schema changed: recreating demo data');
     db.exec('PRAGMA foreign_keys = OFF');
-    for (const t of ['notifications', 'meeting_attendees', 'meetings', 'comments', 'files', 'tasks', 'sessions', 'users', 'departments']) db.exec(`DROP TABLE IF EXISTS ${t}`);
+    for (const t of ['notifications', 'task_members', 'meeting_attendees', 'meetings', 'comments', 'files', 'tasks', 'sessions', 'users', 'departments']) db.exec(`DROP TABLE IF EXISTS ${t}`);
     db.exec('PRAGMA foreign_keys = ON');
     for (const f of fs.readdirSync(UPLOAD_DIR)) fs.rmSync(path.join(UPLOAD_DIR, f), { force: true });
   }

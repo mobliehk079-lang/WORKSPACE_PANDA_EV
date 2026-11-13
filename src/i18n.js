@@ -66,6 +66,13 @@ const LO = {
   'Video clips, posters/images and documents': 'ຄລິບວິດີໂອ, ໂປສເຕີ/ຮູບພາບ ແລະ ເອກະສານ',
   'Something went wrong. Please try again': 'ເກີດຂໍ້ຜິດພາດ ກະລຸນາລອງໃໝ່',
   'You do not have permission to do this': 'ທ່ານບໍ່ມີສິດເຮັດລາຍການນີ້',
+  'Only supervisors and managers can review tasks': 'ສະເພາະຫົວໜ້າພະແນກ ແລະ ຜູ້ຈັດການທີ່ກວດວຽກໄດ້',
+  'This task is no longer waiting for review': 'ວຽກນີ້ບໍ່ໄດ້ລໍຖ້າກວດແລ້ວ',
+  'Please write what needs to be changed': 'ກະລຸນາຂຽນວ່າຕ້ອງແກ້ໄຂຫຍັງ',
+  'You do not have access to this task': 'ທ່ານບໍ່ມີສິດເບິ່ງວຽກນີ້',
+  'You can only upload files to tasks you can see': 'ທ່ານອັບໂຫຼດໄຟລ໌ໄດ້ສະເພາະວຽກທີ່ທ່ານມີສິດເບິ່ງ',
+  'Coworkers must be in the same department as the task': 'ເພື່ອນຮ່ວມງານຕ້ອງຢູ່ພະແນກດຽວກັນກັບວຽກ',
+  'Only the assignee, the creator or a supervisor can choose coworkers': 'ສະເພາະຜູ້ຮັບຜິດຊອບ, ຜູ້ສ້າງວຽກ ຫຼື ຫົວໜ້າພະແນກທີ່ເລືອກເພື່ອນຮ່ວມງານໄດ້',
 };
 
 export function translate(lang, key, vars = {}) {

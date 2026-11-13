@@ -9,7 +9,22 @@ export const isSuper = (u) => u.role === 'superadmin';
 export const isAdmin = (u) => u.role === 'admin' || u.role === 'superadmin';
 export const canSeeDept = (u, deptId) => isAdmin(u) || u.dept_id === deptId;
 export const canManageDept = (u, deptId) => isAdmin(u) || (u.role === 'supervisor' && u.dept_id === deptId);
-export const canEditTask = (u, t) => canManageDept(u, t.dept_id) || (u.dept_id === t.dept_id && (t.assignee_id === u.id || t.created_by === u.id));
+export const isTaskMember = (db, taskId, userId) => !!db.prepare('SELECT 1 FROM task_members WHERE task_id=? AND user_id=?').get(taskId, userId);
+/** Assignee, creator, assigner or an added coworker — in the task's own department */
+export const isInvolved = (db, u, t) => u.dept_id === t.dept_id && (t.assignee_id === u.id || t.created_by === u.id || t.assigner_id === u.id || isTaskMember(db, t.id, u.id));
+/** Managers see everything, supervisors their whole department, staff only tasks they are involved in */
+export const canSeeTask = (db, u, t) => canManageDept(u, t.dept_id) || isInvolved(db, u, t);
+export const canEditTask = (db, u, t) => canSeeTask(db, u, t);
+/** Who may change the coworker list: supervisors/managers, the assignee or the creator */
+export const canSetMembers = (u, t) => canManageDept(u, t.dept_id) || (u.dept_id === t.dept_id && (t.assignee_id === u.id || t.created_by === u.id));
+/** SQL filter (on tasks alias `a`) limiting staff to tasks they are involved in; everyone else is limited by department only */
+export function taskScope(u, a = 't') {
+  if (u.role !== 'staff') return { sql: '1=1', params: [] };
+  return {
+    sql: `(${a}.assignee_id=? OR ${a}.created_by=? OR ${a}.assigner_id=? OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id=${a}.id AND tm.user_id=?))`,
+    params: [u.id, u.id, u.id, u.id],
+  };
+}
 export const canDeleteTask = (u, t) => canManageDept(u, t.dept_id) || (u.role === 'staff' && t.created_by === u.id && t.assignee_id === u.id && t.status === 'todo');
 export function permissions(u) {
   return {

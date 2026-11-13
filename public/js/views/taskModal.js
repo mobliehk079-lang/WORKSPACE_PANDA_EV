@@ -7,6 +7,15 @@ import {
 
 export const changed = () => window.dispatchEvent(new CustomEvent('tw:changed'));
 
+/** Checkbox list of department staff who can be added as coworkers on a task */
+export function memberPicker(deptId, selected = [], { exclude = [] } = {}) {
+  const people = S.users.filter((u) => u.dept_id === deptId && u.role === 'staff' && !exclude.includes(u.id));
+  if (!people.length) return `<div class="muted" style="font-size:.86rem">${t('No other staff in this department')}</div>`;
+  return `<div class="check-list member-pick">${people.map((u) => `<label class="check-item"><input type="checkbox" value="${u.id}" ${selected.includes(u.id) ? 'checked' : ''}>${avatar(u, 'sm', true)}<span style="flex:1;min-width:0">${esc(u.name)}</span><small class="muted">${esc(u.title || '')}</small></label>`).join('')}</div>`;
+}
+const pickedIds = (root) => $$('.member-pick input:checked', root).map((i) => Number(i.value));
+const memberChips = (list, deptCode) => list.map((u) => `<span class="att-chip">${avatar({ ...u, dept_code: deptCode }, 'sm')}${esc(u.name)}</span>`).join('');
+
 export function fileCard(f, { canDelete = false, showTask = false } = {}) {
   const [label, bg] = FILE_STYLE[f.kind] || ['FILE', 'linear-gradient(135deg,#94a3b8,#475569)'];
   let thumb;
@@ -86,6 +95,11 @@ export async function openTask(id) {
           ? `<select class="input" id="t-assignee"><option value="">— ${t('Not assigned')} —</option>${assignees.map((u) => `<option value="${u.id}" ${u.id === task.assignee_id ? 'selected' : ''}>${esc(u.name)}${u.role === 'supervisor' ? ` (${t('Supervisor')})` : ''}</option>`).join('')}</select>`
           : `<div class="flex" style="min-height:44px">${task.assignee_name ? avatar({ name: task.assignee_name, dept_code: task.dept_code }, 'sm') + esc(task.assignee_name) : `<span class="muted">${t('Not assigned')}</span>`}</div>`}</div>
         <div class="field"><label>${t('Assigned by')}</label><div class="flex" style="min-height:44px">${task.assigner_name ? avatar({ name: task.assigner_name }, 'sm') + esc(task.assigner_name) : '-'}</div></div>
+      </div>
+      <div class="field"><label>${icon('users')} ${t('Coworkers')} <span class="hint">— ${t('can see and work on this task')}</span></label>
+        ${can.members
+          ? `<div id="t-members">${memberPicker(task.dept_id, task.members.map((u) => u.id), { exclude: [task.assignee_id] })}</div><small class="hint">${t('Other staff in the department cannot see this task. Supervisors always can.')}</small>`
+          : `<div class="flex wrap" style="gap:6px;min-height:36px">${task.members.length ? memberChips(task.members, task.dept_code) : `<span class="muted">${t('No coworkers added')}</span>`}</div>`}
       </div>
       <div class="row row-3">
         <div class="field"><label>${t('Start date')}</label><input type="date" class="input" id="t-start" value="${task.start_date}" ${ro ? 'readonly' : ''}></div>
@@ -170,6 +184,7 @@ export async function openTask(id) {
       if (!extra.status) body.status = $('#t-status', el).value;
     }
     const as = $('#t-assignee', el); if (as) body.assignee_id = as.value ? Number(as.value) : null;
+    const mem = $('#t-members', el); if (mem) body.member_ids = pickedIds(mem);
     try {
       task = { ...task, ...(await api(`/api/tasks/${task.id}`, { method: 'PATCH', body })) };
       dirty = true;
@@ -211,6 +226,8 @@ export async function openNewTask(prefill = {}) {
         <div class="field"><label>${t('Due date')} *</label><input type="date" class="input" name="due_date" value="${prefill.due || addDays(prefill.start || t0, 3)}" required></div>
       </div>
       <div class="field"><label>${t('Assignee')} <span class="hint">— ${t('most free first')}</span></label><div class="assignee-list" id="nt-assignees"><div class="skeleton" style="min-height:60px"></div></div></div>
+      <div class="field"><label>${icon('users')} ${t('Coworkers')} <span class="hint">— ${t('can see and work on this task')}</span></label><div id="nt-members"></div>
+        <small class="hint">${t('Other staff in the department cannot see this task. Supervisors always can.')}</small></div>
       <div class="field"><label>${t('Attach files (optional)')}</label><input type="file" class="input" id="nt-files" multiple><small class="hint" id="nt-rule"></small></div>
       <div class="error-text" id="nt-err"></div>
       <div class="modal-foot"><button type="button" class="btn" data-close>${t('Cancel')}</button><button class="btn btn-primary" type="submit">${icon('plus')} ${t('Create task')}</button></div>
@@ -221,6 +238,9 @@ export async function openNewTask(prefill = {}) {
     const code = form.dept.value;
     $('#nt-rule', m.el).textContent = `${t('Accepted files')}: ${fileRuleLabel(code)}`;
     $('#nt-files', m.el).accept = acceptFor(code);
+    const deptId = S.depts.find((d) => d.code === code)?.id;
+    const keep = pickedIds($('#nt-members', m.el));
+    $('#nt-members', m.el).innerHTML = memberPicker(deptId, keep, { exclude: [S.me.id] });
     const box = $('#nt-assignees', m.el);
     try {
       const list = await api(`/api/assignable?dept=${code}`);
@@ -243,6 +263,7 @@ export async function openNewTask(prefill = {}) {
       const created = await api('/api/tasks', { method: 'POST', body: {
         title: form.title.value, description: form.description.value, dept: form.dept.value, priority: form.priority.value,
         start_date: form.start_date.value, due_date: form.due_date.value, assignee_id: selected, status: prefill.status || 'todo',
+        member_ids: pickedIds($('#nt-members', m.el)),
       } });
       const files = $('#nt-files', m.el).files;
       if (files.length) await uploadMany(created.id, [...files], null);

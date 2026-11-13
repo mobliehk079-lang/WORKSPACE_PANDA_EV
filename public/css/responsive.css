@@ -213,3 +213,28 @@ body.modal-open { overflow: hidden; }
   .auth-brand .brand-logo { display: none; }
   .modal, .overlay.drawer .modal { max-height: 100dvh; height: auto; }
 }
+
+/* ---------- Review queue ---------- */
+@media (max-width: 1280px) {
+  .review { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
+  .rv-body { grid-template-columns: minmax(0, 1fr); }
+}
+/* Tablet portrait & phones: list first, tap a task to open its preview */
+@media (max-width: 920px) {
+  .review { grid-template-columns: minmax(0, 1fr); }
+  .rv-list, .rv-detail { position: static; max-height: none; }
+  .review .rv-detail { display: none; }
+  .review.open .rv-list { display: none; }
+  .review.open .rv-detail { display: flex; }
+  .rv-back { display: inline-flex; margin-left: -8px; }
+  .rv-actions { position: sticky; bottom: 0; background: var(--glass-strong); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 0 0 var(--radius) var(--radius); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .rv-detail { overflow: visible; }
+}
+@media (max-width: 640px) {
+  .rv-scroll { padding: 16px 14px 8px; }
+  .rv-changes, .rv-actions { padding-left: 14px; padding-right: 14px; }
+  .rv-title { font-size: 1.15rem; }
+  .rv-meta div { grid-template-columns: 100px minmax(0, 1fr); }
+  .rv-actions .btn { flex: 1 1 auto; }
+  .rv-open { margin-left: 0; width: 100%; text-align: center; }
+}

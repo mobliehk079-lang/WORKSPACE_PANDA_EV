@@ -19,7 +19,7 @@ export function taskCard(task) {
     <div class="foot">
       ${task.assignee_name ? avatar({ name: task.assignee_name, dept_code: task.dept_code }, 'sm') : '<span class="avatar sm" style="--dc1:#94a3b8;--dc2:#64748b">?</span>'}
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.assignee_name || t('Not assigned'))}</span>
-      ${task.file_count ? `<span class="ic">${icon('clip')}${task.file_count}</span>` : ''}${task.comment_count ? `<span class="ic">${icon('message')}${task.comment_count}</span>` : ''}
+      ${task.member_count ? `<span class="ic" title="${t('Coworkers')}">${icon('users')}${task.member_count}</span>` : ''}${task.file_count ? `<span class="ic">${icon('clip')}${task.file_count}</span>` : ''}${task.comment_count ? `<span class="ic">${icon('message')}${task.comment_count}</span>` : ''}
       <span>${task.progress}%</span>
     </div></div>`;
 }
