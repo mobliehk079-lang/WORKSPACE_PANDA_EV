@@ -1,6 +1,6 @@
 import {
   S, api, esc, $, $$, h, icon, toast, toastErr, avatar, roleBadge, PRESENCE, DEPT_ICON, STATUS_LABEL, timeAgo, dept, deptShort, setTitle,
-  t, lang, APP_NAME, LOGO, openModal,
+  t, lang, APP_NAME, LOGO, openModal, watchVideos,
 } from './utils.js';
 import { setLang } from './i18n.js';
 import { renderDashboard } from './views/dashboard.js';
@@ -334,5 +334,6 @@ async function boot() {
     if (e.status === 401) showLogin(); else app.innerHTML = `<div class="auth-wrap"><div class="glass card empty">${icon('alert')}${esc(e.message)}</div></div>`;
   }
 }
+watchVideos();
 boot();
 void setTitle;

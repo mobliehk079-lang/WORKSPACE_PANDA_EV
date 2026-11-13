@@ -374,4 +374,7 @@ export const LO = {
   'No other staff in this department': 'ບໍ່ມີພະນັກງານຄົນອື່ນໃນພະແນກນີ້',
   'No coworkers added': 'ບໍ່ມີເພື່ອນຮ່ວມງານ',
   '{name} added you to a task': '{name} ເພີ່ມທ່ານເຂົ້າຮ່ວມວຽກ',
+  'This browser cannot show this video': 'ບຣາວເຊີນີ້ສະແດງວິດີໂອນີ້ບໍ່ໄດ້',
+  'The video is probably in HEVC/H.265 format (iPhone default). Download it to watch, or upload it again as MP4 (H.264).': 'ວິດີໂອນີ້ອາດເປັນຮູບແບບ HEVC/H.265 (ຄ່າເລີ່ມຕົ້ນຂອງ iPhone) — ດາວໂຫຼດມາເບິ່ງ ຫຼື ອັບໂຫຼດໃໝ່ເປັນ MP4 (H.264)',
+  'On iPhone: Settings → Camera → Formats → Most Compatible': 'ໃນ iPhone: ການຕັ້ງຄ່າ → ກ້ອງຖ່າຍຮູບ → ຮູບແບບ → ເຂົ້າກັນໄດ້ຫຼາຍທີ່ສຸດ (Most Compatible)',
 };

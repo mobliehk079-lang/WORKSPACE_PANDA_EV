@@ -235,6 +235,31 @@ export function lightbox(file) {
   $('[data-x]', el).addEventListener('click', close);
   el.addEventListener('click', (e) => { if (e.target.classList.contains('lb-body')) close(); });
 }
+/**
+ * Watch every <video> on the page (once, at boot). When the browser can read a file's sound but not its picture
+ * (videoWidth 0 — usually HEVC/H.265 from an iPhone on Chrome/Edge for Windows) the player would stay black,
+ * so replace it with an explanation and a download link. Players also get data-orient="portrait|landscape".
+ */
+export function watchVideos() {
+  document.addEventListener('loadedmetadata', (e) => {
+    const v = e.target;
+    if (!(v instanceof HTMLVideoElement)) return;
+    if (!v.videoWidth) {
+      v.classList.add('no-picture');
+      if (!v.controls) return; // small thumbnails keep their play icon
+      const src = v.currentSrc.replace(/#.*$/, '');
+      v.pause();
+      v.replaceWith(h(`<div class="vid-warn">${icon('alert')}<b>${t('This browser cannot show this video')}</b>
+        <span>${t('The video is probably in HEVC/H.265 format (iPhone default). Download it to watch, or upload it again as MP4 (H.264).')}</span>
+        <small>${t('On iPhone: Settings → Camera → Formats → Most Compatible')}</small>
+        <a class="btn btn-sm" href="${esc(src)}?download=1">${icon('download')} ${t('Download')}</a></div>`));
+      return;
+    }
+    v.dataset.orient = v.videoHeight > v.videoWidth ? 'portrait' : 'landscape';
+    v.dispatchEvent(new CustomEvent('tw:orient', { bubbles: true }));
+  }, true);
+}
+
 export const FILE_STYLE = {
   pdf: ['PDF', 'linear-gradient(135deg,#f87171,#dc2626)'], sheet: ['XLS', 'linear-gradient(135deg,#34d399,#059669)'],
   doc: ['DOC', 'linear-gradient(135deg,#60a5fa,#2563eb)'], slide: ['PPT', 'linear-gradient(135deg,#fdba74,#ea580c)'],

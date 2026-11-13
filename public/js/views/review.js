@@ -177,6 +177,10 @@ export async function renderReview(page) {
       $$('.rv-mini', detail).forEach((m) => m.classList.toggle('sel', m === mini));
     }
   });
+  // Vertical video/photo → narrow media column beside the details (like a phone screen)
+  const orient = (w, h) => $('.rv-body', detail)?.classList.toggle('portrait', h > w);
+  detail.addEventListener('tw:orient', (e) => { if (e.target.closest('.rv-stage')) orient(e.target.videoWidth, e.target.videoHeight); });
+  detail.addEventListener('load', (e) => { const i = e.target; if (i.tagName === 'IMG' && i.closest('.rv-stage')) orient(i.naturalWidth, i.naturalHeight); }, true);
   detail.addEventListener('submit', (e) => {
     e.preventDefault();
     const note = $('#rv-note', detail).value.trim();

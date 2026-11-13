@@ -620,8 +620,21 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .rv-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .rv-body.no-media { grid-template-columns: minmax(0, 1fr); }
 .rv-body.no-media .rv-media { display: none; }
-.rv-stage { border-radius: 16px; overflow: hidden; background: #000; display: grid; place-items: center; min-height: 220px; }
-.rv-stage video, .rv-stage img { display: block; width: 100%; max-height: 62vh; object-fit: contain; }
+/* The player takes the media's own shape (no black bars): full width for landscape, tall and narrow for portrait */
+.rv-stage { display: flex; justify-content: center; }
+.rv-stage video, .rv-stage img { display: block; width: auto; height: auto; max-width: 100%; max-height: 64vh; border-radius: 16px; background: #000; }
+.rv-stage video:not([data-orient]) { width: 100%; aspect-ratio: 16 / 9; }
+.rv-body.portrait { grid-template-columns: minmax(200px, 42%) minmax(0, 1fr); }
+.rv-body.portrait .rv-stage { justify-content: flex-end; }
+.rv-body.portrait .rv-meta div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.rv-body.portrait .rv-stage video, .rv-body.portrait .rv-stage img { max-height: 70vh; }
+.rv-nomedia { background: #000; border-radius: 16px; width: 100%; min-height: 220px; justify-content: center; }
+/* Shown instead of a black player when the browser cannot decode the picture (e.g. HEVC) */
+.vid-warn { width: 100%; min-height: 220px; border-radius: 16px; background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; text-align: center; font-size: .88rem; }
+.vid-warn > svg { width: 34px; height: 34px; color: #fbbf24; }
+.vid-warn span { color: rgba(255, 255, 255, .8); max-width: 420px; }
+.vid-warn small { color: rgba(255, 255, 255, .6); }
+.vid-warn .btn { color: #fff; background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .25); margin-top: 4px; }
 .rv-stage img { cursor: zoom-in; }
 .rv-nomedia { color: rgba(255, 255, 255, .6); display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: .85rem; }
 .rv-nomedia svg { width: 32px; height: 32px; }

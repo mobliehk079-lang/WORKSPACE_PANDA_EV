@@ -238,3 +238,6 @@ body.modal-open { overflow: hidden; }
   .rv-actions .btn { flex: 1 1 auto; }
   .rv-open { margin-left: 0; width: 100%; text-align: center; }
 }
+@media (max-width: 640px) {
+  .rv-body.portrait { grid-template-columns: minmax(0, 1fr); }
+}
