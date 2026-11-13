@@ -222,7 +222,7 @@ export function timeline(el, tasks, { groupBy = 'dept' } = {}) {
 // ======================================================================
 // Filters + views (shared with department workspaces)
 // ======================================================================
-export async function mountTaskViews(root, { fixedDept = null, view = 'kanban', onView } = {}) {
+export async function mountTaskViews(root, { fixedDept = null, view = 'kanban', onView, mineOnly = false } = {}) {
   const seeAll = S.perms.seeAllDepts && !fixedDept;
   const st = { view, dept: fixedDept || 'all', assignee: '', priority: '', q: '', mine: false, tasks: [], meetings: null };
   root.innerHTML = `
@@ -238,9 +238,9 @@ export async function mountTaskViews(root, { fixedDept = null, view = 'kanban', 
     </div>
     <div class="toolbar filters">
       <div class="search"><span>${icon('search')}</span><input class="input" id="tv-q" type="search" placeholder="${t('Search tasks…')}" aria-label="${t('Search tasks…')}"></div>
-      <select class="input" id="tv-assignee" aria-label="${t('Assignee')}"></select>
+      <select class="input" id="tv-assignee" aria-label="${t('Assignee')}" ${mineOnly ? 'hidden' : ''}></select>
       <select class="input" id="tv-prio" aria-label="${t('Priority')}"><option value="">${t('All priorities')}</option>${Object.entries(PRIORITY).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
-      <button class="btn" id="tv-mine" aria-pressed="false">${icon('user')} ${t('My tasks')}</button>
+      <button class="btn" id="tv-mine" aria-pressed="false" ${mineOnly ? 'hidden' : ''}>${icon('user')} ${t('My tasks')}</button>
       <span class="muted" id="tv-count" style="font-size:.86rem"></span>
     </div>
     <div id="tv-body"><div class="skeleton" style="min-height:360px"></div></div>`;
@@ -257,21 +257,21 @@ export async function mountTaskViews(root, { fixedDept = null, view = 'kanban', 
     const list = filtered();
     $('#tv-count', root).textContent = t('{n} tasks', { n: list.length });
     if (st.view === 'kanban') kanban(body, list);
-    else if (st.view === 'timeline') timeline(body, list, { groupBy: st.dept === 'all' ? 'dept' : 'assignee' });
+    else if (st.view === 'timeline') timeline(body, list, { groupBy: st.dept === 'all' || mineOnly ? 'dept' : 'assignee' });
     else {
       if (!st.meetings) st.meetings = await api('/api/meetings');
       const meets = st.dept === 'all' ? st.meetings : st.meetings.filter((mt) => !mt.dept_code || mt.dept_code === st.dept);
-      calendarView(body, { tasks: list, meetings: st.mine ? meets.filter((mt) => mt.attendees.some((a) => a.user_id === S.me.id)) : meets });
+      calendarView(body, { tasks: list, meetings: st.mine || mineOnly ? meets.filter((mt) => mt.attendees.some((a) => a.user_id === S.me.id)) : meets });
     }
   };
-  const load = async () => { st.tasks = await api(`/api/tasks?dept=${st.dept}`); await draw(); };
+  const load = async () => { st.tasks = await api(`/api/tasks?dept=${st.dept}${mineOnly ? '&mine=1' : ''}`); await draw(); };
   segmented($('#tv-view', root), (v) => { st.view = v; onView?.(v); draw(); });
   if (seeAll) segmented($('#tv-dept', root), (v) => { st.dept = v; st.assignee = ''; fillAssignees(); load(); });
   $('#tv-q', root).addEventListener('input', debounce((e) => { st.q = e.target.value.trim(); draw(); }, 200));
   $('#tv-assignee', root).addEventListener('change', (e) => { st.assignee = e.target.value; draw(); });
   $('#tv-prio', root).addEventListener('change', (e) => { st.priority = e.target.value; draw(); });
   $('#tv-mine', root).addEventListener('click', (e) => { st.mine = !st.mine; e.currentTarget.classList.toggle('btn-primary', st.mine); e.currentTarget.setAttribute('aria-pressed', st.mine); draw(); });
-  $('#tv-new', root).addEventListener('click', () => openNewTask({ dept: st.dept !== 'all' ? st.dept : undefined }));
+  $('#tv-new', root).addEventListener('click', () => openNewTask({ dept: st.dept !== 'all' ? st.dept : undefined, assignee: mineOnly ? S.me.id : undefined }));
   fillAssignees();
   await load();
   const onChanged = () => { st.meetings = null; load().catch(() => {}); };
@@ -281,6 +281,12 @@ export async function mountTaskViews(root, { fixedDept = null, view = 'kanban', 
   ro.observe(root);
   window.addEventListener('tw:changed', onChanged);
   return () => { window.removeEventListener('tw:changed', onChanged); ro.disconnect(); };
+}
+
+/** "My work": the same board, only tasks I am responsible for or a coworker on */
+export async function renderMine(page, view = 'kanban') {
+  setTitle(t('My work'), S.me.name);
+  return mountTaskViews(page, { view: view || 'kanban', mineOnly: true, onView: (v) => history.replaceState(null, '', `#/mine/${v}`) });
 }
 
 export async function renderTasks(page, view = 'kanban') {

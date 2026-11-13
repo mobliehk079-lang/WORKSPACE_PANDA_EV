@@ -18,7 +18,8 @@ npm run demo       # wipe everything and load demo data (all demo accounts use p
 
 ## First start
 
-The workspace starts **empty**: the 3 departments and one super admin.
+The workspace starts **empty**: the 5 departments (IT, Finance, Marketing, Business Development, Administration) and one super admin.
+Departments added in a newer version are created automatically in an existing database on start — no data is touched.
 
 - Email: `superadmin@panda-ev.com` (or set `SUPERADMIN_EMAIL`)
 - Password: set `SUPERADMIN_PASSWORD` before the first start, or a random one is generated, printed in the console and saved to `data/superadmin-password.txt`.
@@ -58,7 +59,16 @@ Railway builds from the `Dockerfile` (Node 24 + **ffmpeg**). ffmpeg converts vid
 | **ກວດວຽກ / Review work** page (approve or send back with a note) | all departments | own department | ✗ |
 | Schedule meetings | anyone | own department | ✗ (can accept/decline) |
 | KPI | everyone | own team | self |
+| **ສະຫຼຸບວຽກປະຈຳອາທິດ / Weekly report** (Mon–Fri) | own work + every department, person by person | own work + own department, person by person | own work |
 | Manage users | super admin only | ✗ | ✗ |
+
+## Weekly report (Present)
+
+Menu **ສະຫຼຸບວຽກປະຈຳອາທິດ / Weekly report**: the work week runs Monday → Friday, ready for the Saturday meeting. For each person it lists what was **done this week** (on time / late), what is **still in progress** (with overdue flags) and the **plan for next week**. Use ◀ ▶ to look at earlier weeks.
+
+- **Present** — full-screen slides (← → keys, swipe, Esc to close). Choosing a single department adds one slide per person.
+- **PDF / Print** — print layout; choose *Save as PDF* in the print dialog.
+- **Excel** — downloads a CSV that opens in Excel (Lao text included).
 
 ## Languages
 
@@ -83,6 +93,7 @@ src/i18n.js          server messages (Lao)
 src/seed.js          demo data (Lao)
 public/js/i18n.js    language switch, Lao dates
 public/js/lang-lo.js Lao UI dictionary
+public/js/views/report.js  weekly report, Present slides, CSV export
 public/css/          style.css (glass UI) + responsive.css (devices)
 data/                database + uploaded files (created automatically)
 ```

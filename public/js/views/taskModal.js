@@ -70,7 +70,9 @@ export async function openTask(id) {
   function render() {
     const can = task.can;
     const over = dueInfo(task).over;
-    const assignees = S.users.filter((u) => u.dept_id === task.dept_id && !['admin', 'superadmin'].includes(u.role));
+    const isMgr = (u) => ['admin', 'superadmin'].includes(u.role);
+    // Department members, plus a manager who works on it: yourself (if you are a manager) or the current assignee
+    const assignees = S.users.filter((u) => (u.dept_id === task.dept_id && !isMgr(u)) || (isMgr(u) && (u.id === task.assignee_id || (u.id === S.me.id && isMgr(S.me)))));
     const statusOpts = STATUS.map((s) => `<option value="${s.key}" ${s.key === task.status ? 'selected' : ''} ${!can.approve && (s.key === 'done' || task.status === 'done') && s.key !== task.status ? 'disabled' : ''}>${s.label}</option>`).join('');
     const media = task.files.filter((f) => f.kind === 'video');
     const others = task.files.filter((f) => f.kind !== 'video');
@@ -202,7 +204,7 @@ export function assigneeItem(u, i, selected) {
   const level = away ? 'away' : u.workload.level;
   return `<label class="assignee ${selected ? 'sel' : ''}"><input type="radio" name="assignee" value="${u.id}" ${selected ? 'checked' : ''}>
     ${avatar(u, '', true)}
-    <span class="grow"><b>${esc(u.name)}</b>${i === 0 && !away ? `<span class="best">${t('Most free')}</span>` : ''}<small>${esc(u.title || '')} · ${PRESENCE[u.presence]} · ${t('{n} open tasks', { n: u.workload.active })}</small></span>
+    <span class="grow"><b>${esc(u.name)}${u.id === S.me.id ? ` (${t('Me')})` : ''}</b>${i === 0 && !away && u.id !== S.me.id ? `<span class="best">${t('Most free')}</span>` : ''}<small>${esc(u.title || '')} · ${PRESENCE[u.presence]} · ${t('{n} open tasks', { n: u.workload.active })}</small></span>
     <span class="lb"><span class="load-tag ${level}">${LOAD[level]}</span><div class="bar load-bar" style="margin-top:5px"><i class="${u.workload.level}" style="width:${u.workload.percent}%"></i></div></span></label>`;
 }
 

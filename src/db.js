@@ -122,6 +122,26 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notif_ref ON notifications(user_id, ref_key);
 `;
 
+// ---------- Departments (code is the stable key; new ones are added to existing databases on start) ----------
+export const DEPTS = [
+  { code: 'it', name: 'ພະແນກໄອທີ (IT)', short: 'IT', name_en: 'IT Department', short_en: 'IT', color: '#38bdf8', color2: '#6366f1',
+    description: 'ດູແລລະບົບ, ເຄືອຂ່າຍ, ຄວາມປອດໄພ ແລະ ພັດທະນາຊອບແວພາຍໃນອົງກອນ', description_en: 'Systems, network, security and in-house software development' },
+  { code: 'finance', name: 'ພະແນກການເງິນ / ບັນຊີ', short: 'ການເງິນ', name_en: 'Finance / Accounting', short_en: 'Finance', color: '#34d399', color2: '#059669',
+    description: 'ບັນຊີ, ງົບການເງິນ, ອາກອນ, ເງິນເດືອນ ແລະ ງົບປະມານຂອງອົງກອນ', description_en: 'Accounting, financial statements, tax, payroll and budgeting' },
+  { code: 'marketing', name: 'ພະແນກການຕະຫຼາດ / ກຣາຟິກ', short: 'ການຕະຫຼາດ', name_en: 'Marketing / Graphic', short_en: 'Marketing', color: '#f472b6', color2: '#fb923c',
+    description: 'ແຄມເປນ, ຄອນເທັນ, ໂຊຊຽວມີເດຍ, ງານກຣາຟິກ ແລະ ວິດີໂອ', description_en: 'Campaigns, content, social media, graphics and video' },
+  { code: 'bizdev', name: 'ພະແນກພັດທະນາທຸລະກິດ', short: 'ພັດທະນາທຸລະກິດ', name_en: 'Business Development', short_en: 'Biz Dev', color: '#fbbf24', color2: '#ea580c',
+    description: 'ຫາຄູ່ຮ່ວມທຸລະກິດ, ຕົວແທນຈຳໜ່າຍ, ສາຂາໃໝ່ ແລະ ໂຄງການຂະຫຍາຍທຸລະກິດ', description_en: 'Partners, dealers, new branches and business expansion projects' },
+  { code: 'mgmt', name: 'ພະແນກບໍລິຫານ', short: 'ບໍລິຫານ', name_en: 'Administration', short_en: 'Admin', color: '#a78bfa', color2: '#7c3aed',
+    description: 'ບໍລິຫານທົ່ວໄປ, ບຸກຄະລາກອນ, ເອກະສານ, ສັນຍາ ແລະ ນະໂຍບາຍຂອງບໍລິສັດ', description_en: 'General administration, HR, documents, contracts and company policy' },
+];
+export function ensureDepartments(db) {
+  const ins = db.prepare('INSERT OR IGNORE INTO departments (code,name,short,name_en,short_en,description,description_en,color,color2) VALUES (?,?,?,?,?,?,?,?,?)');
+  let added = 0;
+  for (const d of DEPTS) added += Number(ins.run(d.code, d.name, d.short, d.name_en, d.short_en, d.description, d.description_en, d.color, d.color2).changes);
+  return added;
+}
+
 export function openDb(file = DB_FILE) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -139,6 +159,11 @@ export function openDb(file = DB_FILE) {
   }
   db.exec(SCHEMA);
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  // Existing workspaces get departments added later (no data is touched)
+  if (db.prepare('SELECT COUNT(*) c FROM departments').get().c > 0) {
+    const n = ensureDepartments(db);
+    if (n) console.log(`  + ${n} new department(s) added`);
+  }
   return db;
 }
 
@@ -200,6 +225,10 @@ export const DEPT_FILE_RULES = {
   it:        { kinds: ['pdf', 'doc', 'sheet', 'slide', 'archive', 'image'], label: 'Documents (PDF, Word, Excel, PowerPoint, ZIP) and screenshots' },
   finance:   { kinds: ['pdf', 'sheet', 'doc'], label: 'PDF, Excel and Word documents' },
   marketing: { kinds: ['image', 'video', 'pdf', 'doc', 'slide', 'design'], label: 'Video clips, posters/images and documents' },
+  bizdev:    { kinds: ['pdf', 'doc', 'sheet', 'slide', 'image', 'archive'], label: 'Documents (PDF, Word, Excel, PowerPoint, ZIP) and images' },
+  mgmt:      { kinds: ['pdf', 'doc', 'sheet', 'slide', 'image', 'archive'], label: 'Documents (PDF, Word, Excel, PowerPoint, ZIP) and images' },
 };
+const ANY_DOC = { kinds: ['pdf', 'doc', 'sheet', 'slide', 'image', 'archive'], label: 'Documents (PDF, Word, Excel, PowerPoint, ZIP) and images' };
+export const fileRuleFor = (code) => DEPT_FILE_RULES[code] || ANY_DOC;
 export const MAX_SIZE = { video: 300 * 1024 * 1024, default: 30 * 1024 * 1024 };
 export function extOf(name) { const m = /\.([a-z0-9]+)$/i.exec(name || ''); return m ? m[1].toLowerCase() : ''; }

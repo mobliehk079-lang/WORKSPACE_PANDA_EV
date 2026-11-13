@@ -99,7 +99,8 @@ export function kpiFor(tasks, today = ymd()) {
   return { total, done: done.length, onTime, late: done.length - onTime, onTimeRate, completionRate, overdue, avgDays: Math.round(avgDays * 10) / 10, score };
 }
 
-function weekStart(d) { const x = new Date(d); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return ymd(x); }
+/** Monday of the week containing date `d` (YYYY-MM-DD) */
+export function weekStart(d) { const x = new Date(d); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return ymd(x); }
 /** Weekly (8 weeks) or monthly (6 months) completed tasks split on-time/late. Labels are date keys; the client formats them. */
 export function kpiSeries(tasks, period = 'week') {
   const today = ymd();

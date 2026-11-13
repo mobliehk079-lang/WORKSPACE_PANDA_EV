@@ -4,7 +4,7 @@ import {
 } from './utils.js';
 import { setLang } from './i18n.js';
 import { renderDashboard } from './views/dashboard.js';
-import { renderTasks } from './views/tasks.js';
+import { renderTasks, renderMine } from './views/tasks.js';
 import { renderCalendarPage } from './views/calendar.js';
 import { renderWorkspace } from './views/workspace.js';
 import { renderTeam } from './views/team.js';
@@ -13,6 +13,7 @@ import { renderMeetings } from './views/meetings.js';
 import { renderUsers } from './views/users.js';
 import { openTask } from './views/taskModal.js';
 import { renderReview, setBadge as setReviewBadge } from './views/review.js';
+import { renderReport } from './views/report.js';
 
 const app = $('#app');
 let cleanup = null;
@@ -106,9 +107,11 @@ function navHtml() {
     <div class="nav-label">${t('Overview')}</div>
     <nav class="nav">
       ${link('#/dashboard', 'dashboard', t('Dashboard'))}
+      ${link('#/mine', 'user', t('My work'))}
       ${link('#/tasks', 'kanban', p.seeAllDepts ? t('All plans') : t('Tasks'))}
       ${link('#/calendar', 'calendar', t('Calendar'))}
       ${link('#/meetings', 'meeting', t('Meetings'), '<span class="count" id="meet-count" hidden></span>')}
+      ${link('#/report', 'present', t('Weekly report'))}
       ${p.approveDone ? link('#/review', 'checkCircle', t('Review work'), '<span class="count" id="review-count" hidden></span>') : ''}
     </nav>
     <div class="nav-label">${p.seeAllDepts ? t('Department workspaces') : t('My department')}</div>
@@ -277,12 +280,14 @@ function toggleNotifications(e) {
 const ROUTES = [
   [/^#\/dashboard$/, renderDashboard],
   [/^#\/tasks(?:\/(kanban|timeline|calendar))?$/, renderTasks],
+  [/^#\/mine(?:\/(kanban|timeline|calendar))?$/, renderMine],
   [/^#\/calendar$/, renderCalendarPage],
   [/^#\/dept\/(\w+)(?:\/(\w+))?$/, renderWorkspace],
   [/^#\/team$/, renderTeam],
   [/^#\/kpi$/, renderKpi],
   [/^#\/meetings$/, renderMeetings],
   [/^#\/review$/, renderReview],
+  [/^#\/report$/, renderReport],
   [/^#\/users$/, renderUsers],
 ];
 

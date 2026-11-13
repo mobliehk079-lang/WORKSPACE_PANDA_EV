@@ -3,18 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { openDb, tx, ymd, addDays, localIso, hashPassword, DB_FILE, UPLOAD_DIR } from './db.js';
+import { openDb, tx, ymd, addDays, localIso, hashPassword, DB_FILE, UPLOAD_DIR, ensureDepartments } from './db.js';
 
 export const DEMO_PASSWORD = 'demo1234';
 
-const DEPTS = [
-  { code: 'it', name: 'ພະແນກໄອທີ (IT)', short: 'IT', name_en: 'IT Department', short_en: 'IT', color: '#38bdf8', color2: '#6366f1',
-    description: 'ດູແລລະບົບ, ເຄືອຂ່າຍ, ຄວາມປອດໄພ ແລະ ພັດທະນາຊອບແວພາຍໃນອົງກອນ', description_en: 'Systems, network, security and in-house software development' },
-  { code: 'finance', name: 'ພະແນກການເງິນ / ບັນຊີ', short: 'ການເງິນ', name_en: 'Finance / Accounting', short_en: 'Finance', color: '#34d399', color2: '#059669',
-    description: 'ບັນຊີ, ງົບການເງິນ, ອາກອນ, ເງິນເດືອນ ແລະ ງົບປະມານຂອງອົງກອນ', description_en: 'Accounting, financial statements, tax, payroll and budgeting' },
-  { code: 'marketing', name: 'ພະແນກການຕະຫຼາດ / ກຣາຟິກ', short: 'ການຕະຫຼາດ', name_en: 'Marketing / Graphic', short_en: 'Marketing', color: '#f472b6', color2: '#fb923c',
-    description: 'ແຄມເປນ, ຄອນເທັນ, ໂຊຊຽວມີເດຍ, ງານກຣາຟິກ ແລະ ວິດີໂອ', description_en: 'Campaigns, content, social media, graphics and video' },
-];
 
 const D = '@panda-ev.com';
 const USERS = [
@@ -34,6 +26,12 @@ const USERS = [
   { key: 'mkt2', name: 'ນິດຕະຍາ ອິນແກ້ວ', email: `mkt.staff2${D}`, role: 'staff', dept: 'marketing', title: 'Video Editor', presence: 'busy' },
   { key: 'mkt3', name: 'ທະວີສັກ ມີສຸກ', email: `mkt.staff3${D}`, role: 'staff', dept: 'marketing', title: 'Content Creator' },
   { key: 'mkt4', name: 'ວັນນິສາ ດວງດີ', email: `mkt.staff4${D}`, role: 'staff', dept: 'marketing', title: 'Digital Marketing' },
+  { key: 'bizLead', name: 'ສົມພອນ ແສງອາລຸນ', email: `biz.lead${D}`, role: 'supervisor', dept: 'bizdev', title: 'ຫົວໜ້າພະແນກພັດທະນາທຸລະກິດ' },
+  { key: 'biz1', name: 'ອາລຸນີ ວົງສະຫວັນ', email: `biz.staff1${D}`, role: 'staff', dept: 'bizdev', title: 'Business Development Officer', presence: 'busy' },
+  { key: 'biz2', name: 'ເພັດສະໝອນ ຄຳມະນີ', email: `biz.staff2${D}`, role: 'staff', dept: 'bizdev', title: 'Partnership Officer' },
+  { key: 'mgmtLead', name: 'ດາລາວັນ ສີພັນດອນ', email: `mgmt.lead${D}`, role: 'supervisor', dept: 'mgmt', title: 'ຫົວໜ້າພະແນກບໍລິຫານ' },
+  { key: 'mgmt1', name: 'ບົວພັນ ໄຊສົມບັດ', email: `mgmt.staff1${D}`, role: 'staff', dept: 'mgmt', title: 'HR Officer' },
+  { key: 'mgmt2', name: 'ສຸກສະຫວັນ ພົມມະລາດ', email: `mgmt.staff2${D}`, role: 'staff', dept: 'mgmt', title: 'Admin Officer', presence: 'busy' },
 ];
 
 // [dept, title, description, assignee, start, due, priority, status, progress, completed|null]
@@ -65,11 +63,31 @@ const TASKS = [
   ['marketing', 'ລາຍງານຜົນແຄມເປນ Facebook Ads', 'ສະຫຼຸບ reach, CTR, ROAS ທຽບກັບເປົ້າໝາຍ', 'mkt4', -5, -2, 'medium', 'doing', 65],
   ['marketing', 'ວາງແຜນຄອນເທັນໂຊຊຽວເດືອນໜ້າ', 'Content calendar 30 ວັນ ສຳລັບ Facebook, IG ແລະ TikTok', 'mkt3', 2, 9, 'medium', 'todo', 0],
   ['marketing', 'ກຽມບູດງານວາງສະແດງລົດ (Motor Show)', 'ອອກແບບບູດ ສື່ສິ່ງພິມ ແລະ ຂອງທີ່ລະນຶກ', 'mkt3', 1, 7, 'urgent', 'todo', 0],
+  ['bizdev', 'ສຳຫຼວດທີ່ຕັ້ງສາຂາໃໝ່ ແຂວງຫຼວງພະບາງ', 'ລົງພື້ນທີ່ 3 ຈຸດ ທຽບຄ່າເຊົ່າ ແລະ ຈຳນວນລູກຄ້າເປົ້າໝາຍ', 'biz1', -4, 3, 'high', 'doing', 50],
+  ['bizdev', 'ເຈລະຈາຕົວແທນຈຳໜ່າຍ ແຂວງຈຳປາສັກ', 'ກຽມຂໍ້ສະເໜີ ແລະ ເງື່ອນໄຂສັນຍາຕົວແທນ', 'biz2', -3, 2, 'urgent', 'review', 90],
+  ['bizdev', 'ແຜນຕິດຕັ້ງສະຖານີສາກໄຟ ປີ 2027', 'ຈຸດຕິດຕັ້ງ, ງົບປະມານ ແລະ ຄູ່ຮ່ວມມື', 'biz1', 1, 12, 'medium', 'todo', 0],
+  ['bizdev', 'ລາຍງານວິເຄາະຕະຫຼາດລົດ EV ລາວ', 'ສ່ວນແບ່ງຕະຫຼາດ ແລະ ຄູ່ແຂ່ງ ໄຕມາດນີ້', 'biz2', -8, -2, 'medium', 'done', 100, -2],
+  ['mgmt', 'ປັບປຸງລະບຽບການພະນັກງານ ສະບັບ 2027', 'ທົບທວນລະບຽບ ວັນພັກ ແລະ ສະຫວັດດີການ', 'mgmt1', -5, 4, 'high', 'doing', 40],
+  ['mgmt', 'ສະຫຼຸບການເຂົ້າ-ອອກວຽກປະຈຳເດືອນ', 'ລວບລວມຂໍ້ມູນຈາກເຄື່ອງສະແກນ ສົ່ງພະແນກການເງິນ', 'mgmt2', -2, 1, 'urgent', 'doing', 70],
+  ['mgmt', 'ຕໍ່ສັນຍາເຊົ່າອາຄານສຳນັກງານ', 'ປະສານເຈົ້າຂອງອາຄານ ແລະ ກວດເງື່ອນໄຂສັນຍາໃໝ່', 'mgmt2', 2, 9, 'medium', 'todo', 0],
+  // Leaders' own work
+  ['it', 'ທົບທວນແຜນງົບປະມານ IT ປີ 2027', 'ສະຫຼຸບຄວາມຕ້ອງການອຸປະກອນ ແລະ ໄລເຊັນ ສົ່ງຜູ້ບໍລິຫານ', 'itLead', -3, 2, 'high', 'doing', 60],
+  ['finance', 'ກວດສອບງົບການເງິນກ່ອນສົ່ງຜູ້ສອບບັນຊີ', 'ທົບທວນງົບດຸນ ແລະ ງົບກຳໄລຂາດທຶນ', 'finLead', -4, -1, 'urgent', 'done', 100, -1],
+  ['marketing', 'ອະນຸມັດແຜນແຄມເປນໄຕມາດ 1', 'ກວດງົບໂຄສະນາ ແລະ ຊ່ອງທາງສື່', 'mktLead', 0, 6, 'high', 'todo', 0],
+  ['bizdev', 'ນຳສະເໜີແຜນຂະຫຍາຍສາຂາຕໍ່ຜູ້ບໍລິຫານ', 'ສະຫຼຸບຜົນສຳຫຼວດ 3 ແຂວງ ແລະ ງົບລົງທຶນ', 'bizLead', -2, 4, 'high', 'doing', 45],
+  ['mgmt', 'ກຳນົດ KPI ພະນັກງານປີ 2027', 'ປະສານທຸກພະແນກ ກຳນົດຕົວຊີ້ວັດ', 'mgmtLead', -1, 8, 'medium', 'doing', 20],
+  // The general manager's own work (managers can take tasks in any department)
+  ['mgmt', 'ເຊັນສັນຍາຄູ່ຮ່ວມທຸລະກິດ ແຂວງຈຳປາສັກ', 'ທົບທວນສັນຍາສຸດທ້າຍ ແລະ ເຊັນ', 'admin', -2, 1, 'urgent', 'doing', 70],
+  ['bizdev', 'ພົບຕົວແທນຜູ້ຜະລິດລົດ EV ຈີນ', 'ເຈລະຈາລາຄາ ແລະ ເງື່ອນໄຂການນຳເຂົ້າປີໜ້າ', 'admin', -6, -2, 'high', 'done', 100, -2],
+  ['finance', 'ອະນຸມັດງົບປະມານປີ 2027', 'ພິຈາລະນາຮ່າງງົບປະມານຈາກທຸກພະແນກ', 'admin', 3, 10, 'high', 'todo', 0],
+  ['mgmt', 'ສຳພາດພະນັກງານໃໝ່ 4 ຕຳແໜ່ງ', 'ຄັດເລືອກໃບສະໝັກ ແລະ ນັດສຳພາດ', 'mgmt1', -9, -3, 'high', 'done', 100, -3],
 ];
 
 const ROUTINE = {
   it: ['ຣີເຊັດລະຫັດຜ່ານ ແລະ ປົດລັອກບັນຊີຜູ້ໃຊ້', 'ຕິດຕັ້ງເຄື່ອງພິມຊັ້ນ 2', 'ອັບເດດເຟີມແວສະວິດ', 'ກວດສອບ log ຄວາມປອດໄພ', 'ແກ້ບັກລະບົບລາພັກ', 'ຍ້າຍໄຟລ໌ແຊຣ໌ໄປ NAS ໃໝ່', 'ທົດສອບ UPS ໄຟຟ້າສຳຮອງ', 'ຕັ້ງຄ່າອີເມວພະນັກງານໃໝ່'],
   finance: ['ບັນທຶກໃບແຈ້ງໜີ້ຜູ້ສະໜອງ', 'ເຮັດລາຍງານກະແສເງິນສົດ', 'ກວດນັບເງິນສົດຍ່ອຍ', 'ຍື່ນແບບອາກອນລາຍໄດ້', 'ອອກໃບເກັບເງິນ', 'ສະຫຼຸບຄ່າໃຊ້ຈ່າຍລາຍພະແນກ', 'ກວດສອບສັນຍາເຊົ່າ', 'ວິເຄາະຕົ້ນທຶນລົດນຳເຂົ້າ'],
+  bizdev: ['ພົບລູກຄ້າອົງກອນ', 'ກຽມໃບສະເໜີລາຄາຂາຍຍົກ', 'ສະຫຼຸບຍອດຂາຍຕົວແທນ', 'ສຳຫຼວດຄູ່ແຂ່ງ', 'ກຽມເອກະສານປະມູນ'],
+  mgmt: ['ອອກໜັງສືຢັ້ງຢືນເງິນເດືອນ', 'ຈັດຊື້ອຸປະກອນສຳນັກງານ', 'ຈັດເກັບເອກະສານສັນຍາ', 'ກຽມຫ້ອງປະຊຸມຜູ້ບໍລິຫານ', 'ປະຖົມນິເທດພະນັກງານໃໝ່'],
   marketing: ['ອອກແບບໂພສ Facebook ປະຈຳອາທິດ', 'ຕັດຕໍ່ຄລິບສຳພາດລູກຄ້າ', 'ຂຽນບົດຄວາມ SEO', 'ເຮັດ Story Instagram', 'ອອກແບບໃບປິວໂປຣໂມຊັນ', 'ສະຫຼຸບ engagement ລາຍອາທິດ', 'ເຮັດຮູບປົກອີເວັນ', 'ເຮັດ EDM ສົ່ງລູກຄ້າ'],
 };
 
@@ -115,9 +133,8 @@ export function seed(db) {
   const at = (offset, hh = 10, mm = 0) => `${addDays(today, offset)}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
 
   return tx(db, () => {
-    const deptId = {};
-    const insDept = db.prepare('INSERT INTO departments (code,name,short,name_en,short_en,description,description_en,color,color2) VALUES (?,?,?,?,?,?,?,?,?)');
-    for (const d of DEPTS) deptId[d.code] = Number(insDept.run(d.code, d.name, d.short, d.name_en, d.short_en, d.description, d.description_en, d.color, d.color2).lastInsertRowid);
+    ensureDepartments(db);
+    const deptId = Object.fromEntries(db.prepare('SELECT code,id FROM departments').all().map((d) => [d.code, d.id]));
 
     const uid = {};
     const pw = hashPassword(DEMO_PASSWORD);
@@ -126,14 +143,14 @@ export function seed(db) {
     // ຄຳຂໍລົງທະບຽນທີ່ລໍຖ້າອະນຸມັດ (ຕົວຢ່າງ)
     const pending = Number(db.prepare("INSERT INTO users (name,email,password_hash,role,dept_id,title,status,created_at) VALUES (?,?,?,'staff',?,?,'pending',?)")
       .run('ແສງເດືອນ ພົມມະວົງ', `saengdeuan${D}`, pw, deptId.marketing, 'Social Media Admin', now).lastInsertRowid);
-    const leadOf = { it: 'itLead', finance: 'finLead', marketing: 'mktLead' };
+    const leadOf = { it: 'itLead', finance: 'finLead', marketing: 'mktLead', bizdev: 'bizLead', mgmt: 'mgmtLead' };
 
     const insTask = db.prepare(`INSERT INTO tasks (title,description,dept_id,assignee_id,assigner_id,created_by,start_date,due_date,completed_at,priority,status,progress,sort,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const taskId = {};
     TASKS.forEach((t, i) => {
       const [dept, title, desc, who, s, d, prio, status, progress, comp] = t;
-      const assigner = i % 5 === 0 ? uid.admin : uid[leadOf[dept]];
+      const assigner = i % 5 === 0 || who === 'admin' ? uid.admin : uid[leadOf[dept]];
       taskId[title] = Number(insTask.run(title, desc, deptId[dept], uid[who], assigner, assigner, addDays(today, s), addDays(today, d),
         comp != null ? at(comp, 16, 30) : null, prio, status, progress, i + 1, at(s - 1, 9), now).lastInsertRowid);
     });
@@ -204,7 +221,7 @@ export function seed(db) {
 }
 
 /**
- * Clean start for real use: the 3 departments + one super admin. No demo users, tasks or files.
+ * Clean start for real use: the departments + one super admin. No demo users, tasks or files.
  * Password comes from SUPERADMIN_PASSWORD, otherwise a random one is generated, printed once,
  * and saved to data/superadmin-password.txt (data/ is never committed).
  */
@@ -213,8 +230,7 @@ export function seedBase(db) {
   const email = (process.env.SUPERADMIN_EMAIL || `superadmin${D}`).toLowerCase();
   const password = process.env.SUPERADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
   tx(db, () => {
-    const ins = db.prepare('INSERT INTO departments (code,name,short,name_en,short_en,description,description_en,color,color2) VALUES (?,?,?,?,?,?,?,?,?)');
-    for (const d of DEPTS) ins.run(d.code, d.name, d.short, d.name_en, d.short_en, d.description, d.description_en, d.color, d.color2);
+    ensureDepartments(db);
     db.prepare("INSERT INTO users (name,email,password_hash,role,dept_id,title,status,created_at) VALUES (?,?,?,'superadmin',NULL,?,'active',?)")
       .run('Super Admin', email, hashPassword(password), 'ຜູ້ດູແລລະບົບ', localIso());
   });

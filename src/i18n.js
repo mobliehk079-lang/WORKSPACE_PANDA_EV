@@ -64,6 +64,7 @@ const LO = {
   'Documents (PDF, Word, Excel, PowerPoint, ZIP) and screenshots': 'ເອກະສານ (PDF, Word, Excel, PowerPoint, ZIP) ແລະ ຮູບໜ້າຈໍ',
   'PDF, Excel and Word documents': 'ເອກະສານ PDF, Excel ແລະ Word',
   'Video clips, posters/images and documents': 'ຄລິບວິດີໂອ, ໂປສເຕີ/ຮູບພາບ ແລະ ເອກະສານ',
+  'Documents (PDF, Word, Excel, PowerPoint, ZIP) and images': 'ເອກະສານ (PDF, Word, Excel, PowerPoint, ZIP) ແລະ ຮູບພາບ',
   'Something went wrong. Please try again': 'ເກີດຂໍ້ຜິດພາດ ກະລຸນາລອງໃໝ່',
   'You do not have permission to do this': 'ທ່ານບໍ່ມີສິດເຮັດລາຍການນີ້',
   'Only supervisors and managers can review tasks': 'ສະເພາະຫົວໜ້າພະແນກ ແລະ ຜູ້ຈັດການທີ່ກວດວຽກໄດ້',

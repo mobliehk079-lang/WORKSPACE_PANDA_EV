@@ -7,13 +7,13 @@ import { pipeline } from 'node:stream/promises';
 import { execFile } from 'node:child_process';
 import {
   openDb, tx, DATA_DIR, ymd, localIso, addDays, isYmd, isLocalDateTime, hashPassword, verifyPassword, ROOT, UPLOAD_DIR,
-  EXT_KIND, EXT_MIME, DEPT_FILE_RULES, MAX_SIZE, extOf,
+  EXT_KIND, EXT_MIME, fileRuleFor, MAX_SIZE, extOf, parseYmd,
 } from './src/db.js';
 import { seedBase } from './src/seed.js';
 import {
   HttpError, deny, isAdmin, isSuper, canSeeDept, canManageDept, canEditTask, canDeleteTask, permissions, visibleDeptIds, scopeDepts, inList,
   canSeeTask, canSetMembers, taskScope,
-  membersWithLoad, sortByAvailability, workloadFor, kpiFor, kpiSeries,
+  membersWithLoad, sortByAvailability, workloadFor, kpiFor, kpiSeries, weekStart,
 } from './src/logic.js';
 import { translate } from './src/i18n.js';
 
@@ -144,7 +144,7 @@ route('GET', '/api/bootstrap', ({ user }) => {
   return {
     me: user,
     permissions: permissions(user),
-    departments: departments.map((d) => ({ ...d, visible: visible.includes(d.id), fileRule: DEPT_FILE_RULES[d.code] })),
+    departments: departments.map((d) => ({ ...d, visible: visible.includes(d.id), fileRule: fileRuleFor(d.code) })),
     today: ymd(),
   };
 });
@@ -266,7 +266,14 @@ route('GET', '/api/assignable', ({ user, query }) => {
   if (!d || !canSeeDept(user, d.id)) deny();
   let list = membersWithLoad(db, [d.id]);
   if (!canManageDept(user, d.id)) list = list.filter((m) => m.id === user.id);
-  return sortByAvailability(list);
+  list = sortByAvailability(list);
+  // A manager can take the task themselves (listed last, after the team)
+  if (isAdmin(user)) {
+    const mine = db.prepare("SELECT id,title,status,priority,due_date,progress FROM tasks WHERE assignee_id=? AND status!='done'").all(user.id);
+    list.push({ id: user.id, name: user.name, email: user.email, role: user.role, title: user.title, presence: user.presence, dept_id: null, dept_code: null,
+      workload: workloadFor(mine), current: mine.sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 3) });
+  }
+  return list;
 });
 
 // ======================================================================
@@ -320,6 +327,8 @@ route('GET', '/api/tasks', ({ user, query }) => {
   const params = [...depts, ...scope.params];
   const assignee = query.get('assignee');
   if (assignee === 'me') { where.push('t.assignee_id=?'); params.push(user.id); }
+  // "My work": tasks I am responsible for or a coworker on
+  if (query.get('mine') === '1') { where.push('(t.assignee_id=? OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id=t.id AND tm.user_id=?))'); params.push(user.id, user.id); }
   else if (assignee) { where.push('t.assignee_id=?'); params.push(Number(assignee)); }
   const q = query.get('q');
   if (q) { where.push('(t.title LIKE ? OR t.description LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
@@ -338,6 +347,8 @@ route('GET', '/api/tasks/:id', ({ user, params }) => {
 function validateAssignee(user, deptId, assigneeId) {
   if (assigneeId == null) return null;
   const a = activeUser(assigneeId);
+  // Managers have no department: they may take a task in any department themselves
+  if (a && a.id === user.id && isAdmin(user)) return a.id;
   if (!a || a.dept_id !== deptId) throw bad('The assignee must be in the same department as the task');
   if (!canManageDept(user, deptId) && a.id !== user.id) deny('Staff can only assign tasks to themselves');
   return a.id;
@@ -563,7 +574,7 @@ route('POST', '/api/tasks/:id/files', async ({ req, user, params }) => {
   if (!name) throw bad('File name is missing');
   const ext = extOf(name);
   const kind = EXT_KIND[ext];
-  const rule = DEPT_FILE_RULES[t.dept_code];
+  const rule = fileRuleFor(t.dept_code);
   if (!kind || ext === 'svg' || !rule.kinds.includes(kind)) throw new HttpError(415, 'This department only accepts: {types}', { types: rule.label, _translate: ['types'] });
   const limit = MAX_SIZE[kind] || MAX_SIZE.default;
   const mb = Math.round(limit / 1048576);
@@ -831,6 +842,87 @@ route('GET', '/api/dashboard', ({ user, query }) => {
   result.meetings = meetingRows(user, 'AND m.end_at >= ? AND EXISTS (SELECT 1 FROM meeting_attendees a2 WHERE a2.meeting_id=m.id AND a2.user_id=?)', [localIso(), user.id]).slice(0, 5);
   if (isSuper(user)) result.pendingUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='pending'").get().c;
   return result;
+});
+
+// ======================================================================
+// Weekly report ("Present") — work from Monday to Friday, for the Saturday meeting.
+//   staff:       their own work
+//   supervisor:  their own work + their department, person by person
+//   manager:     their own work + every department, person by person
+// ======================================================================
+const REPORT_SELECT = `SELECT t.id,t.title,t.dept_id,d.code dept_code,t.assignee_id,au.name assignee_name,t.status,t.priority,t.progress,
+  t.start_date,t.due_date,t.completed_at,t.created_at FROM tasks t JOIN departments d ON d.id=t.dept_id LEFT JOIN users au ON au.id=t.assignee_id`;
+
+/** Split tasks into: done this week, still open at the end of the week, planned for next week */
+function weekReport(tasks, ws) {
+  const we = addDays(ws, 6), fri = addDays(ws, 4), today = ymd();
+  const ref = today < fri ? today : fri; // "overdue" = past due on that day (today, or Friday for past weeks)
+  const nextS = addDays(ws, 7), nextE = addDays(ws, 13);
+  const doneOn = (t) => (t.status === 'done' && t.completed_at ? t.completed_at.slice(0, 10) : null);
+  const lite = (t, extra) => ({
+    id: t.id, title: t.title, dept_code: t.dept_code, assignee_id: t.assignee_id, assignee_name: t.assignee_name, status: t.status,
+    priority: t.priority, progress: t.progress, start_date: t.start_date, due_date: t.due_date, completed_at: t.completed_at, ...extra,
+  });
+  const done = tasks.filter((t) => { const c = doneOn(t); return c && c >= ws && c <= we; })
+    .sort((a, b) => a.completed_at.localeCompare(b.completed_at)).map((t) => lite(t, { late: doneOn(t) > t.due_date }));
+  // Open at the end of that week (a task finished in a later week was still open then)
+  const open = tasks.filter((t) => { const c = doneOn(t); return t.created_at.slice(0, 10) <= we && t.start_date <= we && !(c && c <= we); })
+    .map((t) => lite(t, { overdue: t.due_date < ref, finished_later: doneOn(t) }))
+    .sort((a, b) => b.overdue - a.overdue || a.due_date.localeCompare(b.due_date));
+  const next = tasks.filter((t) => { const c = doneOn(t); return !(c && c <= we) && t.created_at.slice(0, 10) <= we && ((t.start_date >= nextS && t.start_date <= nextE) || (t.due_date >= nextS && t.due_date <= nextE)); })
+    .sort((a, b) => a.due_date.localeCompare(b.due_date)).map((t) => lite(t, {}));
+  const late = done.filter((t) => t.late).length;
+  return {
+    summary: {
+      done: done.length, onTime: done.length - late, late, onTimeRate: done.length ? Math.round(((done.length - late) / done.length) * 100) : 0,
+      open: open.length, overdue: open.filter((t) => t.overdue).length, next: next.length,
+    },
+    done, open, next,
+  };
+}
+
+route('GET', '/api/report', ({ user, query }) => {
+  const ws = weekStart(parseYmd(isYmd(query.get('week')) ? query.get('week') : ymd()));
+  const recent = "(t.status!='done' OR t.completed_at >= ?)"; // older finished work cannot appear in this week
+  const out = { week: { start: ws, end: addDays(ws, 4), prev: addDays(ws, -7), next: addDays(ws, 7) }, today: ymd() };
+  // Own work (everyone): tasks I am responsible for or a coworker on
+  out.mine = weekReport(db.prepare(`${REPORT_SELECT} WHERE (t.assignee_id=? OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id=t.id AND tm.user_id=?)) AND ${recent}`)
+    .all(user.id, user.id, ws), ws);
+  if (user.role === 'staff') return out;
+  // Leaders: their department (supervisor) or every department (manager), person by person
+  const depts = scopeDepts(db, user, query.get('dept')).filter((id) => canManageDept(user, id));
+  const people = db.prepare(`SELECT id,name,title,role,dept_id FROM users WHERE status='active' AND role IN ('supervisor','staff') AND dept_id=?
+    ORDER BY CASE role WHEN 'supervisor' THEN 0 ELSE 1 END, name`);
+  const coworkers = db.prepare('SELECT m.task_id,m.user_id FROM task_members m JOIN tasks t ON t.id=m.task_id WHERE t.dept_id=?');
+  out.depts = depts.map((id) => {
+    const d = db.prepare('SELECT code FROM departments WHERE id=?').get(id);
+    const tasks = db.prepare(`${REPORT_SELECT} WHERE t.dept_id=? AND ${recent}`).all(id, ws);
+    const members = new Map();
+    for (const r of coworkers.all(id)) members.set(r.task_id, [...(members.get(r.task_id) || []), r.user_id]);
+    const list = people.all(id);
+    const known = new Set(list.map((p) => p.id));
+    // Everyone gets credit for tasks they are assignee of or coworker on
+    const rows = list.map((p) => ({ ...p, ...weekReport(tasks.filter((t) => t.assignee_id === p.id || members.get(t.id)?.includes(p.id)), ws) }));
+    // Tasks of people outside the member list: a manager working in this department, someone who left, or nobody
+    const others = new Map(); // key: manager id, or 0 = not assigned / left the department
+    for (const t of tasks) {
+      if (known.has(t.assignee_id)) continue;
+      const u = t.assignee_id ? userById(t.assignee_id) : null;
+      const key = u && u.status === 'active' && isAdmin(u) ? u.id : 0;
+      others.set(key, [...(others.get(key) || []), t]);
+    }
+    for (const [key, ts] of [...others].sort((a, b) => (a[0] === 0) - (b[0] === 0))) {
+      const r = weekReport(ts, ws);
+      if (!r.done.length && !r.open.length && !r.next.length) continue;
+      const u = key ? db.prepare('SELECT id,name,title,role FROM users WHERE id=?').get(key) : null;
+      rows.push({ id: u?.id ?? null, name: u?.name ?? '', title: u?.title ?? '', role: u?.role ?? null, dept_id: null, ...r });
+    }
+    return { code: d.code, summary: weekReport(tasks, ws).summary, people: rows };
+  });
+  const sum = (k) => out.depts.reduce((s, d) => s + d.summary[k], 0);
+  const done = sum('done'), onTime = sum('onTime');
+  out.summary = { done, onTime, late: sum('late'), onTimeRate: done ? Math.round((onTime / done) * 100) : 0, open: sum('open'), overdue: sum('overdue'), next: sum('next') };
+  return out;
 });
 
 // ======================================================================
