@@ -40,8 +40,10 @@ function taskLine(x, kind, { who = false, self = null } = {}) {
 }
 
 function lists(r, opts = {}) {
-  const block = (kind, ic, title, items, empty) => `<div class="rp-block rp-${kind}"><h4>${icon(ic)} ${title} <span class="rp-n">${items.length}</span></h4>
-    ${items.length ? `<ul>${items.map((x) => taskLine(x, kind, opts)).join('')}</ul>` : `<p class="muted rp-none">${empty}</p>`}</div>`;
+  // opts.counts: totals for the headers when r holds only one page of the lists (Present);
+  // opts.cont: a continuation page, where a column that has run out stays blank.
+  const block = (kind, ic, title, items, empty) => `<div class="rp-block rp-${kind}"><h4>${icon(ic)} ${title} <span class="rp-n">${opts.counts?.[kind] ?? items.length}</span></h4>
+    ${items.length ? `<ul>${items.map((x) => taskLine(x, kind, opts)).join('')}</ul>` : opts.cont ? '' : `<p class="muted rp-none">${empty}</p>`}</div>`;
   return `<div class="rp-lists">
     ${block('done', 'checkCircle', t('Done this week'), r.done, t('Nothing finished this week'))}
     ${block('open', 'kanban', t('Still in progress'), r.open, t('No open tasks'))}
@@ -170,51 +172,107 @@ function downloadCsv(d, who) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Present: full-screen slides (← → / click / swipe, Esc to close)
+// Present: full-screen slides (← → / click / swipe, Esc to close).
+// A slide never scrolls: when its tasks or people don't fit the screen it is split into several
+// pages (re-measured when the screen size changes, e.g. on entering full screen).
 // ---------------------------------------------------------------------------------------------
 function present(d, who, mode = 'mine') {
-  const slides = [];
   const big = (s) => `<div class="sl-stats">
     <div><b>${s.done}</b><span>${t('Done this week')}</span></div>
     <div><b>${s.done ? s.onTimeRate + '%' : '–'}</b><span>${t('On-time delivery')}</span></div>
     <div><b>${s.open}</b><span>${t('Still in progress')}</span></div>
     <div class="${s.overdue ? 'bad' : ''}"><b>${s.overdue}</b><span>${t('Overdue')}</span></div>
     <div><b>${s.next}</b><span>${t('Next week')}</span></div></div>`;
-  const listSlide = (head, r, opts) => `<div class="sl-head">${head}</div>${big(r.summary)}${lists(r, opts)}`;
-  slides.push(`<div class="sl-title"><span class="sl-logo">${icon('present')}</span><h1>${t('Weekly report')}</h1><h2>${esc(who)}</h2><p>${range(d.week)}</p>
-    ${big(mode === 'team' ? d.summary : d.mine.summary)}</div>`);
+  const pageNo = (k, n) => n > 1 ? `<span class="sl-page">${k + 1} / ${n}</span>` : '';
+
+  // One spec per logical slide. page(k, n, a, b) → html of page k of n showing items a..b-1;
+  // total = number of items that can be split across pages (0 = a single fixed page).
+  const specs = [];
+  specs.push({ total: 0, page: () => `<div class="sl-title"><span class="sl-logo">${icon('present')}</span><h1>${t('Weekly report')}</h1><h2>${esc(who)}</h2><p>${range(d.week)}</p>
+    ${big(mode === 'team' ? d.summary : d.mine.summary)}</div>` });
+
+  // Task lists: an item index is a row across the three columns; the stat tiles only on the first page
+  const listSpec = (head, r, opts = {}) => {
+    const counts = { done: r.done.length, open: r.open.length, next: r.next.length };
+    return { total: Math.max(counts.done, counts.open, counts.next), page: (k, n, a, b) =>
+      `<div class="sl-head">${head}${pageNo(k, n)}</div>${k ? '' : big(r.summary)}${lists({ done: r.done.slice(a, b), open: r.open.slice(a, b), next: r.next.slice(a, b) }, { ...opts, counts, cont: k > 0 })}` };
+  };
+
   if (mode === 'mine')
-    slides.push(listSlide(`<div class="who">${avatar(S.me, 'lg')}<div><h2>${t('My work')}</h2><small>${esc(S.me.name)}</small></div></div>`, d.mine, { who: true, self: S.me.id }));
+    specs.push(listSpec(`<div class="who">${avatar(S.me, 'lg')}<div><h2>${t('My work')}</h2><small>${esc(S.me.name)}</small></div></div>`, d.mine, { who: true, self: S.me.id }));
   if (mode === 'team') {
     const single = d.depts.length === 1;
     for (const dp of d.depts) {
       const rows = dp.people.map((p) => `<tr><td><div class="who">${p.id ? avatar({ name: p.name, dept_id: p.dept_id }) : ''}<b>${esc(personName(p))}</b></div></td>
-        <td class="num ok">${p.summary.done}</td><td class="num">${p.summary.open}</td><td class="num ${p.summary.overdue ? 'bad' : ''}">${p.summary.overdue}</td><td class="num">${p.summary.next}</td></tr>`).join('');
-      slides.push(`<div class="sl-head" style="${deptVars(dp.code)}">${deptChip(dp.code, false)}</div>${big(dp.summary)}
+        <td class="num ok">${p.summary.done}</td><td class="num">${p.summary.open}</td><td class="num ${p.summary.overdue ? 'bad' : ''}">${p.summary.overdue}</td><td class="num">${p.summary.next}</td></tr>`);
+      specs.push({ total: rows.length, page: (k, n, a, b) => `<div class="sl-head" style="${deptVars(dp.code)}">${deptChip(dp.code, false)}${pageNo(k, n)}</div>${k ? '' : big(dp.summary)}
         <table class="sl-table"><thead><tr><th>${t('Employee')}</th><th class="num">${t('Done')}</th><th class="num">${t('In progress')}</th><th class="num">${t('Overdue')}</th><th class="num">${t('Next week')}</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" class="muted">${t('No members in this department yet')}</td></tr>`}</tbody></table>`);
+        <tbody>${rows.slice(a, b).join('') || `<tr><td colspan="5" class="muted">${t('No members in this department yet')}</td></tr>`}</tbody></table>` });
       // One slide per person when presenting a single department (keeps "all departments" short)
       if (single) for (const p of dp.people) if (p.done.length || p.open.length || p.next.length)
-        slides.push(listSlide(`<div class="who">${p.id ? avatar({ name: p.name, dept_id: p.dept_id }, 'lg') : ''}<div><h2>${esc(personName(p))}</h2><small>${esc(p.title || (p.role ? ROLE[p.role] : ''))}</small></div></div>`, p, { who: !p.id }));
+        specs.push(listSpec(`<div class="who">${p.id ? avatar({ name: p.name, dept_id: p.dept_id }, 'lg') : ''}<div><h2>${esc(personName(p))}</h2><small>${esc(p.title || (p.role ? ROLE[p.role] : ''))}</small></div></div>`, p, { who: !p.id }));
     }
   }
   const el = document.createElement('div');
   el.className = 'slides';
-  el.innerHTML = `<div class="sl-stage">${slides.map((s, i) => `<section class="slide" data-i="${i}">${s}</section>`).join('')}</div>
+  el.innerHTML = `<div class="sl-stage"></div>
     <div class="sl-bar"><button class="btn btn-icon" data-a="prev" aria-label="${t('Previous')}">${icon('left')}</button><span class="sl-n"></span>
       <button class="btn btn-icon" data-a="next" aria-label="${t('Next')}">${icon('right')}</button><span class="spacer"></span>
       <button class="btn btn-icon" data-a="full" aria-label="${t('Full screen')}">${icon('maximize')}</button>
       <button class="btn btn-icon" data-a="close" aria-label="${t('Close')}">${icon('x')}</button></div>`;
   document.body.appendChild(el);
   document.body.classList.add('modal-open');
-  let i = 0;
+  const stage = $('.sl-stage', el);
+
+  // Split a spec into pages that fit the stage without scrolling: as many items as fit on the
+  // first page (it also holds the stat tiles), then the most items per page that fit every later page.
+  const probe = document.createElement('section');
+  probe.className = 'slide sl-probe';
+  const fits = (html) => { probe.innerHTML = html; return probe.scrollHeight <= probe.clientHeight + 1; };
+  const paginate = (spec) => {
+    const total = spec.total;
+    if (!total) return [spec.page(0, 1, 0, 0)];
+    let first = total;
+    while (first > 1 && !fits(spec.page(0, first < total ? 2 : 1, 0, first))) first--;
+    if (first >= total) return [spec.page(0, 1, 0, total)];
+    const left = total - first;
+    let per = left;
+    for (; per > 1; per--) {
+      const n = 1 + Math.ceil(left / per);
+      let ok = true;
+      for (let k = 1; ok && k < n; k++) ok = fits(spec.page(k, n, first + (k - 1) * per, first + k * per));
+      if (ok) break;
+    }
+    // per = 1 also covers a single item taller than the screen (that page may still scroll)
+    const n = 1 + Math.ceil(left / per), out = [spec.page(0, n, 0, first)];
+    for (let k = 1; k < n; k++) out.push(spec.page(k, n, first + (k - 1) * per, first + k * per));
+    return out;
+  };
+
+  let slides = [], owner = [], i = 0, lastSize = '';
+  const build = () => {
+    const size = `${stage.clientWidth}x${stage.clientHeight}`;
+    if (size === lastSize) return;
+    lastSize = size;
+    const cur = owner[i] ?? 0; // stay on the same logical slide after re-paginating
+    stage.replaceChildren(probe);
+    slides = []; owner = [];
+    specs.forEach((sp, si) => { for (const h of paginate(sp)) { slides.push(h); owner.push(si); } });
+    stage.innerHTML = slides.map((s, k) => `<section class="slide" data-i="${k}">${s}</section>`).join('');
+    show(Math.max(0, owner.indexOf(cur)));
+  };
   const show = (n) => {
     i = Math.max(0, Math.min(slides.length - 1, n));
     $$('.slide', el).forEach((s, k) => s.classList.toggle('on', k === i));
     $('.sl-n', el).textContent = `${i + 1} / ${slides.length}`;
   };
+  let rt = null;
+  const onResize = () => { clearTimeout(rt); rt = setTimeout(build, 150); };
+  window.addEventListener('resize', onResize);
   const close = () => {
     document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', onResize);
+    clearTimeout(rt);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     el.remove();
     if (!$('.overlay')) document.body.classList.remove('modal-open');
@@ -237,6 +295,6 @@ function present(d, who, mode = 'mine') {
   let x0 = null;
   el.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
   el.addEventListener('touchend', (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) show(i + (dx < 0 ? 1 : -1)); x0 = null; });
+  build();
   el.requestFullscreen?.().catch(() => {});
-  show(0);
 }
