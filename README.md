@@ -53,13 +53,15 @@ Railway builds from the `Dockerfile` (Node 24 + **ffmpeg**). ffmpeg converts vid
 | | Super admin / Manager | Supervisor | Staff |
 |---|---|---|---|
 | See tasks & files | all departments | every task in own department | only tasks they are assigned to, created, or were added to as a coworker |
-| Choose coworkers on a task (same department) | ✓ | ✓ | if they are the assignee or creator |
+| Choose coworkers on a task (from any department) | ✓ | ✓ | if they are the assignee or creator |
 | Assign tasks | anyone | own department | self only |
 | Approve "Done" | ✓ | ✓ | ✗ (moves to "In review") |
 | **ກວດວຽກ / Review work** page (approve or send back with a note) | all departments | own department | ✗ |
 | Schedule meetings | anyone | own department | ✗ (can accept/decline) |
 | KPI | everyone | own team | self |
 | **ສະຫຼຸບວຽກປະຈຳອາທິດ / Weekly report** (Mon–Fri) | own work + every department, person by person | own work + own department, person by person | own work |
+| **Monitor** — see chargers, update status, create a repair task | ✓ | ✓ (every department) | IT staff only |
+| Monitor — add/edit/delete stations and chargers | ✓ | IT supervisor only | ✗ |
 | Manage users | super admin only | ✗ | ✗ |
 
 ## Weekly report (Present)
@@ -69,6 +71,16 @@ Menu **ສະຫຼຸບວຽກປະຈຳອາທິດ / Weekly report**:
 - **Present** — full-screen slides (← → keys, swipe, Esc to close). Choosing a single department adds one slide per person.
 - **PDF / Print** — print layout; choose *Save as PDF* in the print dialog.
 - **Excel** — downloads a CSV that opens in Excel (Lao text included).
+
+## Monitor (charging stations)
+
+Menu **Monitor** (under ທີມ ແລະ ຜົນງານ): every Panda EV station with its chargers — working / total (e.g. `5/6`), station status (active, coming soon, temporarily closed).
+
+- Click a station to see its chargers; click a charger to set its status — **ໃຊ້ງານໄດ້ / Working**, **ມີບັນຫາ / Problem**, **ອອບລາຍ / Offline**, **ກຳລັງສ້ອມແປງ / Under repair** — with a note about the problem. Every change is kept in the charger's history and in *Latest updates*.
+- A new problem notifies the IT team and managers; so does a charger working again.
+- **ສ້າງວຽກສ້ອມແປງໃຫ້ IT / Create repair task** makes a task in the IT department linked to the charger; the reporter is added as a coworker to follow it.
+- The page refreshes itself every 30 seconds.
+- The first start after this update adds the 6 current stations. Chargers that were not working start as *Offline* — set their real status in Monitor.
 
 ## Languages
 

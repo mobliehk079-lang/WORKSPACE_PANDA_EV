@@ -12,7 +12,7 @@ import {
 import { seedBase } from './src/seed.js';
 import {
   HttpError, deny, isAdmin, isSuper, canSeeDept, canManageDept, canEditTask, canDeleteTask, permissions, visibleDeptIds, scopeDepts, inList,
-  canSeeTask, canSetMembers, taskScope,
+  canSeeTask, canSetMembers, taskScope, canMonitor, canManageStations,
   membersWithLoad, sortByAvailability, workloadFor, kpiFor, kpiSeries, weekStart,
 } from './src/logic.js';
 import { translate } from './src/i18n.js';
@@ -932,6 +932,168 @@ route('GET', '/api/report', ({ user, query }) => {
   const done = sum('done'), onTime = sum('onTime');
   out.summary = { done, onTime, late: sum('late'), onTimeRate: done ? Math.round((onTime / done) * 100) : 0, open: sum('open'), overdue: sum('overdue'), next: sum('next') };
   return out;
+});
+
+// ======================================================================
+// Monitor — charging stations and their chargers
+// ======================================================================
+const STATION_STATUS = ['active', 'coming_soon', 'closed'];
+const CHARGER_STATUS = ['ok', 'fault', 'offline', 'maintenance'];
+const PROBLEM = ['fault', 'offline'];
+const requireMonitor = (user) => { if (!canMonitor(user)) deny('Only the IT team, supervisors and managers can open Monitor'); };
+const requireManageStations = (user) => { if (!canManageStations(user)) deny('Only managers and the IT supervisor can change stations and chargers'); };
+const CHARGER_SELECT = `SELECT c.*, u.name updated_by_name, t.title task_title, t.status task_status
+  FROM chargers c LEFT JOIN users u ON u.id=c.updated_by LEFT JOIN tasks t ON t.id=c.task_id`;
+const getStation = (id) => { const s = db.prepare('SELECT * FROM stations WHERE id=?').get(id); if (!s) throw new HttpError(404, 'Station not found'); return s; };
+const getCharger = (id) => {
+  const c = db.prepare(`${CHARGER_SELECT} WHERE c.id=?`).get(id);
+  if (!c) throw new HttpError(404, 'Charger not found');
+  return c;
+};
+/** IT team (to fix it) + managers, except whoever made the change */
+const monitorPeople = (exceptId) => db.prepare(`SELECT u.id FROM users u LEFT JOIN departments d ON d.id=u.dept_id
+  WHERE u.status='active' AND u.id!=? AND (d.code='it' OR u.role IN ('admin','superadmin'))`).all(exceptId).map((r) => r.id);
+function logCharger(c, to, note, userId) {
+  db.prepare('INSERT INTO charger_logs (charger_id,from_status,to_status,note,user_id,created_at) VALUES (?,?,?,?,?,?)').run(c.id, c.status, to, note, userId, localIso());
+}
+
+route('GET', '/api/monitor', ({ user }) => {
+  requireMonitor(user);
+  const stations = db.prepare('SELECT * FROM stations ORDER BY sort, id').all();
+  const chargers = db.prepare(`${CHARGER_SELECT} ORDER BY c.station_id, c.id`).all();
+  const recent = db.prepare(`SELECT l.*, u.name user_name, c.code charger_code, c.station_id, s.name station_name FROM charger_logs l
+    JOIN chargers c ON c.id=l.charger_id JOIN stations s ON s.id=c.station_id LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC LIMIT 15`).all();
+  return {
+    stations: stations.map((s) => ({ ...s, chargers: chargers.filter((c) => c.station_id === s.id) })),
+    recent,
+    can: { manage: canManageStations(user) },
+  };
+});
+
+route('POST', '/api/stations', async ({ req, user }) => {
+  requireManageStations(user);
+  const b = await readJson(req);
+  const name = str(b.name, 160);
+  if (!name) throw bad('Please enter the station name');
+  const status = STATION_STATUS.includes(b.status) ? b.status : 'active';
+  const count = Math.max(0, Math.min(50, int(b.chargers) || 0));
+  const now = localIso();
+  const sort = (db.prepare('SELECT MAX(sort) m FROM stations').get().m ?? 0) + 1;
+  const id = tx(db, () => {
+    const sid = Number(db.prepare('INSERT INTO stations (name,address,status,sort,created_at,updated_at) VALUES (?,?,?,?,?,?)').run(name, str(b.address, 300), status, sort, now, now).lastInsertRowid);
+    for (let n = 1; n <= count; n++) db.prepare("INSERT INTO chargers (station_id,code,status,updated_by,updated_at) VALUES (?,?,'ok',?,?)").run(sid, `#${n}`, user.id, now);
+    return sid;
+  });
+  return getStation(id);
+});
+
+route('PATCH', '/api/stations/:id', async ({ req, user, params }) => {
+  requireManageStations(user);
+  const s = getStation(Number(params.id));
+  const b = await readJson(req);
+  const up = {};
+  if ('name' in b) { up.name = str(b.name, 160); if (!up.name) throw bad('Please enter the station name'); }
+  if ('address' in b) up.address = str(b.address, 300);
+  if ('status' in b) { if (!STATION_STATUS.includes(b.status)) throw bad('Invalid status'); up.status = b.status; }
+  if (Object.keys(up).length) {
+    up.updated_at = localIso();
+    const ks = Object.keys(up);
+    db.prepare(`UPDATE stations SET ${ks.map((k) => `${k}=?`).join(',')} WHERE id=?`).run(...ks.map((k) => up[k]), s.id);
+  }
+  return getStation(s.id);
+});
+
+route('DELETE', '/api/stations/:id', ({ user, params }) => {
+  requireManageStations(user);
+  db.prepare('DELETE FROM stations WHERE id=?').run(getStation(Number(params.id)).id);
+  return { ok: true };
+});
+
+route('POST', '/api/stations/:id/chargers', async ({ req, user, params }) => {
+  requireManageStations(user);
+  const s = getStation(Number(params.id));
+  const b = await readJson(req);
+  const n = db.prepare('SELECT COUNT(*) c FROM chargers WHERE station_id=?').get(s.id).c;
+  const code = str(b.code, 40) || `#${n + 1}`;
+  const status = CHARGER_STATUS.includes(b.status) ? b.status : 'ok';
+  const id = Number(db.prepare('INSERT INTO chargers (station_id,code,model,status,updated_by,updated_at) VALUES (?,?,?,?,?,?)')
+    .run(s.id, code, str(b.model, 80), status, user.id, localIso()).lastInsertRowid);
+  return getCharger(id);
+});
+
+route('GET', '/api/chargers/:id/logs', ({ user, params }) => {
+  requireMonitor(user);
+  const c = getCharger(Number(params.id));
+  return db.prepare('SELECT l.*, u.name user_name FROM charger_logs l LEFT JOIN users u ON u.id=l.user_id WHERE l.charger_id=? ORDER BY l.id DESC LIMIT 50').all(c.id);
+});
+
+route('PATCH', '/api/chargers/:id', async ({ req, user, params }) => {
+  requireMonitor(user);
+  const c = getCharger(Number(params.id));
+  const b = await readJson(req);
+  const up = {};
+  // Name/model are setup; status + note is the everyday update everyone with Monitor access makes
+  if ('code' in b || 'model' in b) {
+    requireManageStations(user);
+    if ('code' in b) { up.code = str(b.code, 40); if (!up.code) throw bad('Please enter the charger name'); }
+    if ('model' in b) up.model = str(b.model, 80);
+  }
+  const note = 'note' in b ? str(b.note, 500) : c.note;
+  let to = null;
+  if ('status' in b) { if (!CHARGER_STATUS.includes(b.status)) throw bad('Invalid status'); to = b.status; }
+  if (to !== null || note !== c.note) {
+    up.status = to ?? c.status;
+    up.note = up.status === 'ok' && to !== null && to !== c.status && !('note' in b) ? '' : note;
+  }
+  if (!Object.keys(up).length) return c;
+  up.updated_by = user.id; up.updated_at = localIso();
+  const station = getStation(c.station_id);
+  tx(db, () => {
+    const ks = Object.keys(up);
+    db.prepare(`UPDATE chargers SET ${ks.map((k) => `${k}=?`).join(',')} WHERE id=?`).run(...ks.map((k) => up[k]), c.id);
+    if ('status' in up) logCharger(c, up.status, up.note, user.id);
+  });
+  const label = `${station.name} · ${up.code || c.code}`;
+  if (to && to !== c.status && PROBLEM.includes(to))
+    for (const uid of monitorPeople(user.id)) notify(uid, 'charger', '{name} reported a charger problem', `${label}${up.note ? `: ${up.note.slice(0, 80)}` : ''}`, '#/monitor', { name: user.name });
+  if (to === 'ok' && c.status !== 'ok')
+    for (const uid of monitorPeople(user.id)) notify(uid, 'charger-ok', 'Charger is working again', label, '#/monitor');
+  return getCharger(c.id);
+});
+
+route('DELETE', '/api/chargers/:id', ({ user, params }) => {
+  requireManageStations(user);
+  db.prepare('DELETE FROM chargers WHERE id=?').run(getCharger(Number(params.id)).id);
+  return { ok: true };
+});
+
+/** Turn a charger problem into a repair task for the IT department (anyone with Monitor access, any department) */
+route('POST', '/api/chargers/:id/task', async ({ req, user, params }) => {
+  requireMonitor(user);
+  const c = getCharger(Number(params.id));
+  if (c.task_id && c.task_status && c.task_status !== 'done') throw bad('This charger already has an open repair task');
+  const it = deptByCode('it');
+  if (!it) throw bad('Please choose a department');
+  const b = await readJson(req);
+  const station = getStation(c.station_id);
+  const title = str(b.title, 200) || `Fix charger ${c.code} — ${station.name}`;
+  const desc = [station.address, c.model, c.note].filter(Boolean).join('\n');
+  const priority = PRIORITY.includes(b.priority) ? b.priority : 'high';
+  const now = localIso();
+  // IT staff take it themselves; everyone else leaves it for the IT supervisor to assign
+  const assigneeId = user.dept_code === 'it' && user.role === 'staff' ? user.id : null;
+  const sort = (db.prepare("SELECT MIN(sort) m FROM tasks WHERE dept_id=? AND status='todo'").get(it.id).m ?? 1) - 1;
+  const id = tx(db, () => {
+    const tid = Number(db.prepare(`INSERT INTO tasks (title,description,dept_id,assignee_id,assigner_id,created_by,start_date,due_date,priority,status,progress,sort,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,'todo',0,?,?,?)`).run(title, desc, it.id, assigneeId, user.id, user.id, ymd(), addDays(ymd(), 1), priority, sort, now, now).lastInsertRowid);
+    // The reporter follows the task when they are not in IT (supervisors of IT and managers see it anyway)
+    if (user.dept_id && user.dept_id !== it.id) db.prepare('INSERT OR IGNORE INTO task_members (task_id,user_id) VALUES (?,?)').run(tid, user.id);
+    db.prepare('UPDATE chargers SET task_id=? WHERE id=?').run(tid, c.id);
+    return tid;
+  });
+  for (const l of db.prepare("SELECT id FROM users WHERE role='supervisor' AND status='active' AND dept_id=? AND id!=?").all(it.id, user.id))
+    notify(l.id, 'assign', '{name} created a repair task', title, `#/task/${id}`, { name: user.name });
+  return getCharger(c.id);
 });
 
 // ======================================================================

@@ -120,6 +120,38 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notif_ref ON notifications(user_id, ref_key);
+-- Monitor: charging stations, their chargers and every status change
+CREATE TABLE IF NOT EXISTS stations (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','coming_soon','closed')),
+  sort REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chargers (
+  id INTEGER PRIMARY KEY,
+  station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','fault','offline','maintenance')),
+  note TEXT NOT NULL DEFAULT '',
+  task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_chargers_station ON chargers(station_id);
+CREATE TABLE IF NOT EXISTS charger_logs (
+  id INTEGER PRIMARY KEY,
+  charger_id INTEGER NOT NULL REFERENCES chargers(id) ON DELETE CASCADE,
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_charger_logs ON charger_logs(charger_id, id);
 `;
 
 // ---------- Departments (code is the stable key; new ones are added to existing databases on start) ----------
@@ -142,6 +174,30 @@ export function ensureDepartments(db) {
   return added;
 }
 
+// ---------- Charging stations (Monitor) ----------
+// [name, address, status, chargers in total, chargers working]
+export const STATIONS = [
+  ['Panda EV — KM7', 'Km7 Sivilai village, Xaythani district, Vientiane Capital', 'active', 6, 5],
+  ['Panda EV — Hongkaikeo', 'Hongkaikeo, Xaysettha District, Vientiane Capital', 'active', 6, 6],
+  ['Panda EV — BuengThatluang', 'Bueng That Luang, Xaysettha District, Vientiane Capital', 'active', 9, 8],
+  ['Panda EV — Phonsay', 'Phonsay Village, Xaysettha District, Vientiane Capital', 'active', 10, 8],
+  ['Panda EV — Dongnasok', 'Dongnasok Village, Sikhottabong District, Vientiane Capital', 'active', 12, 10],
+  ['Panda EV — Sikhottabong District', 'Sikottabong District Administration Office', 'coming_soon', 3, 0],
+];
+/** Chargers that are not working start as "offline" (cause unknown) — the team sets the real status */
+export function seedStations(db) {
+  const now = localIso();
+  const insS = db.prepare('INSERT INTO stations (name,address,status,sort,created_at,updated_at) VALUES (?,?,?,?,?,?)');
+  const insC = db.prepare('INSERT INTO chargers (station_id,code,status,updated_at) VALUES (?,?,?,?)');
+  return tx(db, () => {
+    STATIONS.forEach(([name, address, status, total, ok], i) => {
+      const id = Number(insS.run(name, address, status, i, now, now).lastInsertRowid);
+      for (let n = 1; n <= total; n++) insC.run(id, `#${n}`, n <= ok ? 'ok' : 'offline', now);
+    });
+    return STATIONS.length;
+  });
+}
+
 export function openDb(file = DB_FILE) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -153,12 +209,15 @@ export function openDb(file = DB_FILE) {
     // โครงสร้างเปลี่ยน — ล้างข้อมูลเดโมเก่าแล้วสร้างใหม่
     console.log('Database schema changed: recreating demo data');
     db.exec('PRAGMA foreign_keys = OFF');
-    for (const t of ['notifications', 'task_members', 'meeting_attendees', 'meetings', 'comments', 'files', 'tasks', 'sessions', 'users', 'departments']) db.exec(`DROP TABLE IF EXISTS ${t}`);
+    for (const t of ['charger_logs', 'chargers', 'stations', 'notifications', 'task_members', 'meeting_attendees', 'meetings', 'comments', 'files', 'tasks', 'sessions', 'users', 'departments']) db.exec(`DROP TABLE IF EXISTS ${t}`);
     db.exec('PRAGMA foreign_keys = ON');
     for (const f of fs.readdirSync(UPLOAD_DIR)) fs.rmSync(path.join(UPLOAD_DIR, f), { force: true });
   }
+  const hadStations = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stations'").get();
   db.exec(SCHEMA);
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  // Monitor added later: the first time, load the company's stations (only once, so deleting them later sticks)
+  if (!hadStations) { const n = seedStations(db); if (n) console.log(`  + ${n} charging stations added to Monitor`); }
   // Existing workspaces get departments added later (no data is touched)
   if (db.prepare('SELECT COUNT(*) c FROM departments').get().c > 0) {
     const n = ensureDepartments(db);

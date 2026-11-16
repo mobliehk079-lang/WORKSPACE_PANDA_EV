@@ -14,6 +14,7 @@ import { renderUsers } from './views/users.js';
 import { openTask } from './views/taskModal.js';
 import { renderReview, setBadge as setReviewBadge } from './views/review.js';
 import { renderReport } from './views/report.js';
+import { renderMonitor } from './views/monitor.js';
 
 const app = $('#app');
 let cleanup = null;
@@ -120,6 +121,7 @@ function navHtml() {
     <nav class="nav">
       ${link('#/team', 'users', t('My team'))}
       ${link('#/kpi', 'chart', p.viewTeamKpi ? t('Employee KPI') : t('My KPI'))}
+      ${p.monitor ? link('#/monitor', 'zap', t('Monitor')) : ''}
     </nav>
     ${p.manageUsers ? `<div class="nav-label">${t('Administration')}</div><nav class="nav">${link('#/users', 'shield', t('Users'), '<span class="count" id="pending-count" hidden></span>')}</nav>` : ''}`;
 }
@@ -223,7 +225,8 @@ const NOTI_STYLE = {
   meeting: ['meeting', 'linear-gradient(135deg,#818cf8,#7c3aed)'], 'meeting-soon': ['clock', 'linear-gradient(135deg,#818cf8,#7c3aed)'],
   rsvp: ['check', 'linear-gradient(135deg,#22d3ee,#0891b2)'], due: ['hourglass', 'linear-gradient(135deg,#fbbf24,#d97706)'],
   overdue: ['alert', 'linear-gradient(135deg,#f87171,#dc2626)'], changes: ['edit', 'linear-gradient(135deg,#fb923c,#ea580c)'],
-  member: ['users', 'linear-gradient(135deg,#60a5fa,#7c3aed)'], register: ['userPlus', 'linear-gradient(135deg,#a78bfa,#db2777)'],
+  member: ['users', 'linear-gradient(135deg,#60a5fa,#7c3aed)'],
+  charger: ['zap', 'linear-gradient(135deg,#f87171,#dc2626)'], 'charger-ok': ['zap', 'linear-gradient(135deg,#34d399,#059669)'], register: ['userPlus', 'linear-gradient(135deg,#a78bfa,#db2777)'],
 };
 function notiTitle(n) {
   let p = {};
@@ -288,6 +291,7 @@ const ROUTES = [
   [/^#\/meetings$/, renderMeetings],
   [/^#\/review$/, renderReview],
   [/^#\/report$/, renderReport],
+  [/^#\/monitor$/, renderMonitor],
   [/^#\/users$/, renderUsers],
 ];
 
@@ -301,7 +305,7 @@ async function route() {
     return openTask(Number(tm[1]));
   }
   const r = ROUTES.find(([re]) => re.test(hash));
-  if (!r || (hash === '#/review' && !S.perms.approveDone)) { location.hash = '#/dashboard'; return; }
+  if (!r || (hash === '#/review' && !S.perms.approveDone) || (hash === '#/monitor' && !S.perms.monitor)) { location.hash = '#/dashboard'; return; }
   lastHash = hash;
   const [re, fn] = r;
   const params = hash.match(re).slice(1);

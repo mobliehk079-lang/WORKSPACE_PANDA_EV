@@ -74,6 +74,13 @@ const LO = {
   'You can only upload files to tasks you can see': 'ທ່ານອັບໂຫຼດໄຟລ໌ໄດ້ສະເພາະວຽກທີ່ທ່ານມີສິດເບິ່ງ',
   'Coworkers must be active staff or supervisors': 'ເພື່ອນຮ່ວມງານຕ້ອງເປັນພະນັກງານ ຫຼື ຫົວໜ້າພະແນກທີ່ຍັງເຮັດວຽກຢູ່',
   'Only the assignee, the creator or a supervisor can choose coworkers': 'ສະເພາະຜູ້ຮັບຜິດຊອບ, ຜູ້ສ້າງວຽກ ຫຼື ຫົວໜ້າພະແນກທີ່ເລືອກເພື່ອນຮ່ວມງານໄດ້',
+  'Only the IT team, supervisors and managers can open Monitor': 'ສະເພາະທີມ IT, ຫົວໜ້າພະແນກ ແລະ ຜູ້ບໍລິຫານທີ່ເປີດ Monitor ໄດ້',
+  'Only managers and the IT supervisor can change stations and chargers': 'ສະເພາະຜູ້ບໍລິຫານ ແລະ ຫົວໜ້າພະແນກ IT ທີ່ແກ້ໄຂສະຖານີ ແລະ ຕູ້ສາກໄດ້',
+  'Station not found': 'ບໍ່ພົບສະຖານີ',
+  'Charger not found': 'ບໍ່ພົບຕູ້ສາກ',
+  'Please enter the station name': 'ກະລຸນາໃສ່ຊື່ສະຖານີ',
+  'Please enter the charger name': 'ກະລຸນາໃສ່ຊື່ຕູ້ສາກ',
+  'This charger already has an open repair task': 'ຕູ້ສາກນີ້ມີວຽກສ້ອມແປງທີ່ຍັງບໍ່ແລ້ວຢູ່',
 };
 
 export function translate(lang, key, vars = {}) {

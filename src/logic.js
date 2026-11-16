@@ -25,6 +25,10 @@ export function taskScope(u, a = 't') {
     params: [u.id, u.id, u.id, u.id],
   };
 }
+/** Monitor (charging stations): IT department, supervisors of every department and managers can see and update chargers */
+export const canMonitor = (u) => isAdmin(u) || u.role === 'supervisor' || u.dept_code === 'it';
+/** Adding/editing/removing stations and chargers: managers and the IT supervisor */
+export const canManageStations = (u) => isAdmin(u) || (u.role === 'supervisor' && u.dept_code === 'it');
 export const canDeleteTask = (u, t) => canManageDept(u, t.dept_id) || (u.role === 'staff' && t.created_by === u.id && t.assignee_id === u.id && t.status === 'todo');
 export function permissions(u) {
   return {
@@ -35,6 +39,8 @@ export function permissions(u) {
     viewTeamKpi: u.role !== 'staff',
     deleteTasks: u.role !== 'staff',
     manageUsers: isSuper(u),
+    monitor: canMonitor(u),
+    manageStations: canManageStations(u),
   };
 }
 /** แผนกที่ผู้ใช้เข้าถึงได้ (array ของ id) */
