@@ -72,7 +72,7 @@ const LO = {
   'Please write what needs to be changed': 'ກະລຸນາຂຽນວ່າຕ້ອງແກ້ໄຂຫຍັງ',
   'You do not have access to this task': 'ທ່ານບໍ່ມີສິດເບິ່ງວຽກນີ້',
   'You can only upload files to tasks you can see': 'ທ່ານອັບໂຫຼດໄຟລ໌ໄດ້ສະເພາະວຽກທີ່ທ່ານມີສິດເບິ່ງ',
-  'Coworkers must be in the same department as the task': 'ເພື່ອນຮ່ວມງານຕ້ອງຢູ່ພະແນກດຽວກັນກັບວຽກ',
+  'Coworkers must be active staff or supervisors': 'ເພື່ອນຮ່ວມງານຕ້ອງເປັນພະນັກງານ ຫຼື ຫົວໜ້າພະແນກທີ່ຍັງເຮັດວຽກຢູ່',
   'Only the assignee, the creator or a supervisor can choose coworkers': 'ສະເພາະຜູ້ຮັບຜິດຊອບ, ຜູ້ສ້າງວຽກ ຫຼື ຫົວໜ້າພະແນກທີ່ເລືອກເພື່ອນຮ່ວມງານໄດ້',
 };
 

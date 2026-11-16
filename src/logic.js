@@ -10,8 +10,8 @@ export const isAdmin = (u) => u.role === 'admin' || u.role === 'superadmin';
 export const canSeeDept = (u, deptId) => isAdmin(u) || u.dept_id === deptId;
 export const canManageDept = (u, deptId) => isAdmin(u) || (u.role === 'supervisor' && u.dept_id === deptId);
 export const isTaskMember = (db, taskId, userId) => !!db.prepare('SELECT 1 FROM task_members WHERE task_id=? AND user_id=?').get(taskId, userId);
-/** Assignee, creator, assigner or an added coworker — in the task's own department */
-export const isInvolved = (db, u, t) => u.dept_id === t.dept_id && (t.assignee_id === u.id || t.created_by === u.id || t.assigner_id === u.id || isTaskMember(db, t.id, u.id));
+/** Assignee, creator or assigner in the task's own department — or an added coworker from any department */
+export const isInvolved = (db, u, t) => (u.dept_id === t.dept_id && (t.assignee_id === u.id || t.created_by === u.id || t.assigner_id === u.id)) || isTaskMember(db, t.id, u.id);
 /** Managers see everything, supervisors their whole department, staff only tasks they are involved in */
 export const canSeeTask = (db, u, t) => canManageDept(u, t.dept_id) || isInvolved(db, u, t);
 export const canEditTask = (db, u, t) => canSeeTask(db, u, t);

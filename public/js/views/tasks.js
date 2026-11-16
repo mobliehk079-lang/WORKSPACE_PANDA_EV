@@ -14,7 +14,7 @@ export function taskCard(task) {
   return `<div class="tcard ${over ? 'over' : ''}" data-id="${task.id}" data-over="${t('Overdue')}" style="${deptVars(task.dept_code)}" tabindex="0" role="button" aria-label="${esc(task.title)}">
     ${task.cover_file_id ? `<div class="cover" style="background-image:url('/files/${task.cover_file_id}')"></div>` : ''}
     <h4>${esc(task.title)}</h4>
-    <div class="meta">${prioBadge(task.priority)}${dueBadge(task)}</div>
+    <div class="meta">${S.me.dept_id && task.dept_id !== S.me.dept_id ? deptChip(task.dept_code) : ''}${prioBadge(task.priority)}${dueBadge(task)}</div>
     <div class="bar"><i style="width:${task.progress}%"></i></div>
     <div class="foot">
       ${task.assignee_name ? avatar({ name: task.assignee_name, dept_code: task.dept_code }, 'sm') : '<span class="avatar sm" style="--dc1:#94a3b8;--dc2:#64748b">?</span>'}

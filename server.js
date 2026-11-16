@@ -251,6 +251,10 @@ route('GET', '/api/users', ({ user }) => {
     WHERE u.status='active' AND (u.dept_id IN (${inList(depts)}) OR u.role IN ('admin','superadmin')) ORDER BY u.dept_id, u.id`).all(...depts);
 });
 
+/** Everyone who can be added as a coworker on a task — staff and supervisors of every department (work is often shared) */
+route('GET', '/api/colleagues', () => db.prepare(`SELECT u.id,u.name,u.role,u.title,u.presence,u.dept_id,d.code dept_code FROM users u JOIN departments d ON d.id=u.dept_id
+  WHERE u.status='active' AND u.role IN ('staff','supervisor') ORDER BY u.dept_id, CASE u.role WHEN 'supervisor' THEN 0 ELSE 1 END, u.name`).all());
+
 route('GET', '/api/team', ({ user, query }) => {
   const depts = scopeDepts(db, user, query.get('dept'));
   const list = membersWithLoad(db, depts);
@@ -297,15 +301,16 @@ const taskPerms = (user, t) => ({
 });
 const NO_ACCESS = 'You do not have access to this task';
 const requireSeeTask = (user, t) => { if (!canSeeTask(db, user, t)) deny(NO_ACCESS); };
-const taskMembers = (id) => db.prepare('SELECT u.id,u.name,u.role,u.presence FROM task_members m JOIN users u ON u.id=m.user_id WHERE m.task_id=? ORDER BY u.name').all(id);
+const taskMembers = (id) => db.prepare(`SELECT u.id,u.name,u.role,u.title,u.presence,u.dept_id,d.code dept_code FROM task_members m JOIN users u ON u.id=m.user_id
+  LEFT JOIN departments d ON d.id=u.dept_id WHERE m.task_id=? ORDER BY u.dept_id=(SELECT dept_id FROM tasks WHERE id=?) DESC, u.dept_id, u.name`).all(id, id);
 
-/** Coworkers must be active staff/supervisors of the task's department; the assignee is left out (they see it anyway) */
+/** Coworkers must be active staff/supervisors (of any department — shared work); the assignee is left out (they see it anyway) */
 function validateMembers(deptId, ids, assigneeId) {
   if (!Array.isArray(ids)) throw bad('Invalid request data');
   const clean = [...new Set(ids.map(Number).filter((x) => Number.isInteger(x) && x !== assigneeId))].slice(0, 50);
   for (const id of clean) {
     const u = activeUser(id);
-    if (!u || u.dept_id !== deptId || !['staff', 'supervisor'].includes(u.role)) throw bad('Coworkers must be in the same department as the task');
+    if (!u || !u.dept_id || !['staff', 'supervisor'].includes(u.role)) throw bad('Coworkers must be active staff or supervisors');
   }
   return clean;
 }
@@ -323,12 +328,14 @@ const taskPeople = (t, exceptId) => [...new Set([t.assignee_id, t.assigner_id, t
 route('GET', '/api/tasks', ({ user, query }) => {
   const depts = scopeDepts(db, user, query.get('dept'));
   const scope = taskScope(user);
-  const where = [`t.dept_id IN (${inList(depts)})`, scope.sql];
-  const params = [...depts, ...scope.params];
+  const mine = query.get('mine') === '1';
+  // "My work" also lists tasks of other departments where I was added as a coworker
+  const where = [mine ? `(t.dept_id IN (${inList(depts)}) OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id=t.id AND tm.user_id=?))` : `t.dept_id IN (${inList(depts)})`, scope.sql];
+  const params = [...depts, ...(mine ? [user.id] : []), ...scope.params];
   const assignee = query.get('assignee');
   if (assignee === 'me') { where.push('t.assignee_id=?'); params.push(user.id); }
   // "My work": tasks I am responsible for or a coworker on
-  if (query.get('mine') === '1') { where.push('(t.assignee_id=? OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id=t.id AND tm.user_id=?))'); params.push(user.id, user.id); }
+  if (mine) { where.push('(t.assignee_id=? OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id=t.id AND tm.user_id=?))'); params.push(user.id, user.id); }
   else if (assignee) { where.push('t.assignee_id=?'); params.push(Number(assignee)); }
   const q = query.get('q');
   if (q) { where.push('(t.title LIKE ? OR t.description LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
@@ -901,8 +908,10 @@ route('GET', '/api/report', ({ user, query }) => {
     for (const r of coworkers.all(id)) members.set(r.task_id, [...(members.get(r.task_id) || []), r.user_id]);
     const list = people.all(id);
     const known = new Set(list.map((p) => p.id));
+    // Work this department's people do as coworkers on other departments' tasks
+    const shared = db.prepare(`${REPORT_SELECT.replace(/FROM tasks t/, ', m.user_id helper_id FROM tasks t JOIN task_members m ON m.task_id=t.id JOIN users mu ON mu.id=m.user_id')} WHERE mu.dept_id=? AND t.dept_id!=? AND ${recent}`).all(id, id, ws);
     // Everyone gets credit for tasks they are assignee of or coworker on
-    const rows = list.map((p) => ({ ...p, ...weekReport(tasks.filter((t) => t.assignee_id === p.id || members.get(t.id)?.includes(p.id)), ws) }));
+    const rows = list.map((p) => ({ ...p, ...weekReport([...tasks.filter((t) => t.assignee_id === p.id || members.get(t.id)?.includes(p.id)), ...shared.filter((t) => t.helper_id === p.id)], ws) }));
     // Tasks of people outside the member list: a manager working in this department, someone who left, or nobody
     const others = new Map(); // key: manager id, or 0 = not assigned / left the department
     for (const t of tasks) {

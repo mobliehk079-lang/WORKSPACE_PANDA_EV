@@ -7,14 +7,27 @@ import {
 
 export const changed = () => window.dispatchEvent(new CustomEvent('tw:changed'));
 
-/** Checkbox list of department staff who can be added as coworkers on a task */
+/** Checkbox list of people who can be added as coworkers: the task's department first, then other departments (shared work) */
 export function memberPicker(deptId, selected = [], { exclude = [] } = {}) {
-  const people = S.users.filter((u) => u.dept_id === deptId && u.role === 'staff' && !exclude.includes(u.id));
+  // Supervisors of the task's own department see it anyway; from other departments anyone may be added
+  const people = (S.colleagues || []).filter((u) => !exclude.includes(u.id) && (u.dept_id !== deptId || u.role === 'staff'));
   if (!people.length) return `<div class="muted" style="font-size:.86rem">${t('No other staff in this department')}</div>`;
-  return `<div class="check-list member-pick">${people.map((u) => `<label class="check-item"><input type="checkbox" value="${u.id}" ${selected.includes(u.id) ? 'checked' : ''}>${avatar(u, 'sm', true)}<span style="flex:1;min-width:0">${esc(u.name)}</span><small class="muted">${esc(u.title || '')}</small></label>`).join('')}</div>`;
+  const order = [deptId, ...S.depts.map((d) => d.id).filter((id) => id !== deptId)];
+  const groups = order.map((id) => [id, people.filter((u) => u.dept_id === id)]).filter(([, list]) => list.length);
+  const item = (u) => `<label class="check-item" data-q="${esc(`${u.name} ${u.title || ''}`.toLowerCase())}"><input type="checkbox" value="${u.id}" ${selected.includes(u.id) ? 'checked' : ''}>${avatar(u, 'sm', true)}<span style="flex:1;min-width:0">${esc(u.name)}${u.role === 'supervisor' ? ` <small class="muted">(${t('Supervisor')})</small>` : ''}</span><small class="muted">${esc(u.title || '')}</small></label>`;
+  return `<input type="search" class="input member-search" placeholder="${t('Search coworkers in any department…')}" aria-label="${t('Search coworkers in any department…')}" style="margin-bottom:8px">
+    <div class="check-list member-pick">${groups.map(([id, list]) => `<div class="member-group"><div class="member-group-head">${deptChip(id, false)}${id !== deptId ? `<small class="muted">${t('Other department')}</small>` : ''}</div>${list.map(item).join('')}</div>`).join('')}</div>`;
 }
-const pickedIds = (root) => $$('.member-pick input:checked', root).map((i) => Number(i.value));
-const memberChips = (list, deptCode) => list.map((u) => `<span class="att-chip">${avatar({ ...u, dept_code: deptCode }, 'sm')}${esc(u.name)}</span>`).join('');
+// Live filter for every coworker picker (they are re-rendered often, so bind once on the document)
+document.addEventListener('input', (e) => {
+  if (!e.target.matches?.('.member-search')) return;
+  const q = e.target.value.trim().toLowerCase();
+  const list = e.target.nextElementSibling;
+  $$('.check-item', list).forEach((el) => { el.hidden = !!q && !el.dataset.q.includes(q) && !$('input', el).checked; });
+  $$('.member-group', list).forEach((g) => { g.hidden = !$$('.check-item', g).some((el) => !el.hidden); });
+});
+const pickedIds = (root) => $$('.member-pick input[type=checkbox]:checked', root).map((i) => Number(i.value));
+const memberChips = (list) => list.map((u) => `<span class="att-chip">${avatar(u, 'sm')}${esc(u.name)}${u.dept_code ? ` ${deptChip(u.dept_code)}` : ''}</span>`).join('');
 
 export function fileCard(f, { canDelete = false, showTask = false } = {}) {
   const [label, bg] = FILE_STYLE[f.kind] || ['FILE', 'linear-gradient(135deg,#94a3b8,#475569)'];
@@ -100,8 +113,8 @@ export async function openTask(id) {
       </div>
       <div class="field"><label>${icon('users')} ${t('Coworkers')} <span class="hint">— ${t('can see and work on this task')}</span></label>
         ${can.members
-          ? `<div id="t-members">${memberPicker(task.dept_id, task.members.map((u) => u.id), { exclude: [task.assignee_id] })}</div><small class="hint">${t('Other staff in the department cannot see this task. Supervisors always can.')}</small>`
-          : `<div class="flex wrap" style="gap:6px;min-height:36px">${task.members.length ? memberChips(task.members, task.dept_code) : `<span class="muted">${t('No coworkers added')}</span>`}</div>`}
+          ? `<div id="t-members">${memberPicker(task.dept_id, task.members.map((u) => u.id), { exclude: [task.assignee_id] })}</div><small class="hint">${t('Other staff in the department cannot see this task. Supervisors always can.')} ${t('You can also add people from other departments when the work is shared.')}</small>`
+          : `<div class="flex wrap" style="gap:6px;min-height:36px">${task.members.length ? memberChips(task.members) : `<span class="muted">${t('No coworkers added')}</span>`}</div>`}
       </div>
       <div class="row row-3">
         <div class="field"><label>${t('Start date')}</label><input type="date" class="input" id="t-start" value="${task.start_date}" ${ro ? 'readonly' : ''}></div>
@@ -229,7 +242,7 @@ export async function openNewTask(prefill = {}) {
       </div>
       <div class="field"><label>${t('Assignee')} <span class="hint">— ${t('most free first')}</span></label><div class="assignee-list" id="nt-assignees"><div class="skeleton" style="min-height:60px"></div></div></div>
       <div class="field"><label>${icon('users')} ${t('Coworkers')} <span class="hint">— ${t('can see and work on this task')}</span></label><div id="nt-members"></div>
-        <small class="hint">${t('Other staff in the department cannot see this task. Supervisors always can.')}</small></div>
+        <small class="hint">${t('Other staff in the department cannot see this task. Supervisors always can.')} ${t('You can also add people from other departments when the work is shared.')}</small></div>
       <div class="field"><label>${t('Attach files (optional)')}</label><input type="file" class="input" id="nt-files" multiple><small class="hint" id="nt-rule"></small></div>
       <div class="error-text" id="nt-err"></div>
       <div class="modal-foot"><button type="button" class="btn" data-close>${t('Cancel')}</button><button class="btn btn-primary" type="submit">${icon('plus')} ${t('Create task')}</button></div>

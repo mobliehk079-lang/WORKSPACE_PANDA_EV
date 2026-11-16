@@ -517,6 +517,10 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .check-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 12px; cursor: pointer; background: var(--glass-2); transition: background .2s; }
 .check-item:hover { background: var(--glass-strong); }
 .check-item input { width: 18px; height: 18px; accent-color: #8b5cf6; }
+.member-group { display: flex; flex-direction: column; gap: 6px; }
+.member-group + .member-group { margin-top: 6px; }
+.member-group-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+.check-item[hidden], .member-group[hidden] { display: none; }
 .check-group { font-size: .78rem; color: var(--muted); margin: 8px 0 2px; font-weight: 600; }
 
 /* lightbox */

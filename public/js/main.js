@@ -330,7 +330,7 @@ async function boot() {
   try {
     const b = await api('/api/bootstrap');
     Object.assign(S, { me: b.me, perms: b.permissions, depts: b.departments, today: b.today });
-    S.users = await api('/api/users');
+    [S.users, S.colleagues] = await Promise.all([api('/api/users'), api('/api/colleagues')]);
     lastUnread = -1;
     renderShell();
     if (!location.hash || location.hash === '#/' || location.hash === '#') history.replaceState(null, '', '#/dashboard');
