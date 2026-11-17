@@ -102,6 +102,10 @@ const LO = {
   'Follow with cards of the same rank as the last discard': 'ໄຫຼໄດ້ສະເພາະໄພ່ເລກດຽວກັບໃບທີ່ຫາກໍຖິ້ມ',
   'Call Kaeng at the start of your turn, before drawing': 'ແຄງໄດ້ສະເພາະຕອນເລີ່ມຕາ ກ່ອນຈົກໄພ່',
   'Only the room host can add bots': 'ສະເພາະເຈົ້າຂອງຫ້ອງທີ່ເພີ່ມບອດໄດ້',
+  'These cards do not make a valid play': 'ໄພ່ເຫຼົ່ານີ້ລົງບໍ່ໄດ້ ບໍ່ແມ່ນຊຸດທີ່ຖືກຕ້ອງ',
+  'The first play must include your lowest card': 'ການລົງໄພ່ຄັ້ງທຳອິດຕ້ອງມີໄພ່ໃບນ້ອຍສຸດຂອງທ່ານ',
+  'That does not beat the cards on the table': 'ໄພ່ນີ້ບໍ່ໃຫຍ່ກວ່າໄພ່ເທິງໂຕະ',
+  'You lead this pile — play any cards': 'ທ່ານເປັນຄົນເລີ່ມກອງນີ້ — ລົງໄພ່ຫຍັງກໍໄດ້',
 };
 
 export function translate(lang, key, vars = {}) {

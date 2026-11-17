@@ -16,7 +16,7 @@ import {
   membersWithLoad, sortByAvailability, workloadFor, kpiFor, kpiSeries, weekStart,
 } from './src/logic.js';
 import { translate } from './src/i18n.js';
-import * as kaeng from './src/kaeng.js';
+import * as cards from './src/cards/rooms.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -1222,7 +1222,7 @@ function openLive(req, res, user) {
   live.get(user.id).add(res);
   const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
   // Someone came back: let their room show them online again
-  const room = kaeng.roomOfUser(user.id);
+  const room = cards.roomOfUser(user.id);
   if (room) pushRoom(room);
   req.on('close', () => {
     clearInterval(ping);
@@ -1230,10 +1230,10 @@ function openLive(req, res, user) {
     set?.delete(res);
     if (set && !set.size) {
       live.delete(user.id);
-      const r = kaeng.roomOfUser(user.id);
+      const r = cards.roomOfUser(user.id);
       if (r) pushRoom(r);
       // Gone for good (closed the app): free their seat so the room is not stuck
-      setTimeout(() => { if (!isOnline(user.id)) kaeng.leaveRoom(user.id); }, 90_000);
+      setTimeout(() => { if (!isOnline(user.id)) cards.leaveRoom(user.id); }, 90_000);
     }
   });
 }
@@ -1247,66 +1247,61 @@ function freshPeople(room) {
 }
 function pushRoom(room, extra = []) {
   freshPeople(room);
-  for (const p of room.players) if (!p.bot) push(p.id, 'kaeng', kaeng.view(room, p.id, isOnline));
-  for (const uid of extra) { const r = kaeng.roomOfUser(uid); push(uid, 'kaeng', r ? kaeng.view(r, uid, isOnline) : null); }
+  for (const p of room.players) if (!p.bot) push(p.id, 'cards', cards.view(room, p.id, isOnline));
+  for (const uid of extra) { const r = cards.roomOfUser(uid); push(uid, 'cards', r ? cards.view(r, uid, isOnline) : null); }
 }
-kaeng.onChange(pushRoom);
+cards.onChange(pushRoom);
 
 // ======================================================================
-// Kaeng card game — rooms live only in memory (src/kaeng.js); nothing is saved to the database
+// Multiplayer card games (Kaeng, Tiến Lên) — rooms live only in memory (src/cards/); nothing is saved to the database
 // ======================================================================
-const kaengState = (user) => {
-  const room = kaeng.roomOfUser(user.id);
+const cardState = (user) => {
+  const room = cards.roomOfUser(user.id);
   if (room) freshPeople(room);
-  return { room: room ? kaeng.view(room, user.id, isOnline) : null, invites: kaeng.invitesFor(user.id) };
+  return { room: room ? cards.view(room, user.id, isOnline) : null, invites: cards.invitesFor(user.id) };
 };
-const myRoom = (user) => { const r = kaeng.roomOfUser(user.id); if (!r) throw bad('You are not in a room'); return r; };
-route('GET', '/api/kaeng', ({ req, user }) => { requireGame(req); return kaengState(user); });
-route('GET', '/api/kaeng/online', ({ req }) => { requireGame(req); return [...live.keys()]; });
-route('POST', '/api/kaeng/create', async ({ req, user }) => {
+const myRoom = (user) => { const r = cards.roomOfUser(user.id); if (!r) throw bad('You are not in a room'); return r; };
+route('GET', '/api/cards', ({ req, user }) => { requireGame(req); return cardState(user); });
+route('GET', '/api/cards/online', ({ req }) => { requireGame(req); return [...live.keys()]; });
+route('POST', '/api/cards/create', async ({ req, user }) => {
   requireGame(req);
-  const { bots } = await readJson(req);
-  const room = kaeng.createRoom(user);
-  for (let i = 0; i < Math.min(Number(bots) || 0, kaeng.MAX_PLAYERS - 1); i++) kaeng.addBot(room, user.id);
-  return kaengState(user);
+  const { type, bots } = await readJson(req);
+  const room = cards.createRoom(user, String(type || ''));
+  const max = cards.GAMES[room.type].max;
+  for (let i = 0; i < Math.min(Number(bots) || 0, max - 1); i++) cards.addBot(room, user.id);
+  return cardState(user);
 });
-route('POST', '/api/kaeng/bot', async ({ req, user }) => {
+route('POST', '/api/cards/bot', async ({ req, user }) => {
   requireGame(req);
   const room = myRoom(user);
   const { action, id } = await readJson(req);
-  if (action === 'add') kaeng.addBot(room, user.id);
-  else if (action === 'remove') kaeng.removeBot(room, user.id, Number(id));
+  if (action === 'add') cards.addBot(room, user.id);
+  else if (action === 'remove') cards.removeBot(room, user.id, Number(id));
   else throw bad('Invalid request data');
-  return kaengState(user);
+  return cardState(user);
 });
-route('POST', '/api/kaeng/join', async ({ req, user }) => {
+route('POST', '/api/cards/join', async ({ req, user }) => {
   requireGame(req);
   const { code } = await readJson(req);
-  kaeng.joinRoom(str(code, 10), user);
-  return kaengState(user);
+  cards.joinRoom(str(code, 10), user);
+  return cardState(user);
 });
-route('POST', '/api/kaeng/leave', ({ req, user }) => { requireGame(req); kaeng.leaveRoom(user.id); return kaengState(user); });
-route('POST', '/api/kaeng/invite', async ({ req, user }) => {
+route('POST', '/api/cards/leave', ({ req, user }) => { requireGame(req); cards.leaveRoom(user.id); return cardState(user); });
+route('POST', '/api/cards/invite', async ({ req, user }) => {
   requireGame(req);
   const room = myRoom(user);
   const { ids } = await readJson(req);
   if (!Array.isArray(ids)) throw bad('Invalid request data');
   const valid = ids.map(Number).filter((id) => Number.isInteger(id) && id !== user.id && activeUser(id)).slice(0, 20);
-  for (const id of kaeng.invite(room, user.id, valid)) push(id, 'invite', { room: room.id, from: user.name, game: 'kaeng' });
-  return kaengState(user);
+  for (const id of cards.invite(room, user.id, valid)) push(id, 'invite', { room: room.id, from: user.name, game: room.type });
+  return cardState(user);
 });
-route('POST', '/api/kaeng/start', ({ req, user }) => { requireGame(req); kaeng.startRound(myRoom(user), user.id); return kaengState(user); });
-route('POST', '/api/kaeng/action', async ({ req, user }) => {
+route('POST', '/api/cards/start', ({ req, user }) => { requireGame(req); cards.startRound(myRoom(user), user.id); return cardState(user); });
+route('POST', '/api/cards/action', async ({ req, user }) => {
   requireGame(req);
-  const room = myRoom(user);
-  const { action, cards } = await readJson(req);
-  const list = Array.isArray(cards) ? cards.map(Number) : [];
-  if (action === 'draw') kaeng.draw(room, user.id);
-  else if (action === 'discard') kaeng.discard(room, user.id, list);
-  else if (action === 'follow') kaeng.follow(room, user.id, list);
-  else if (action === 'kaeng') kaeng.kaeng(room, user.id);
-  else throw bad('Invalid request data');
-  return kaengState(user);
+  const { action, cards: list } = await readJson(req);
+  cards.act(myRoom(user), user.id, String(action || ''), list);
+  return cardState(user);
 });
 
 // ======================================================================

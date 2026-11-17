@@ -2,6 +2,7 @@
 // Hidden behind a passcode (checked by the server); the deck survives a page refresh in this tab.
 import { api, $, icon, setTitle, toast, t } from '../utils.js';
 import { kaengScreen } from './kaeng.js';
+import { tienlenScreen } from './tienlen.js';
 
 const SUITS = [['♠', 'black'], ['♥', 'red'], ['♦', 'red'], ['♣', 'black']];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -37,16 +38,16 @@ function faceHtml(c) {
 const backHtml = () => `<div class="pc-face pc-back"><div class="pc-back-in">${icon('cards')}<b>PANDA EV</b></div></div>`;
 
 export async function renderGame(page, sub) {
-  setTitle(sub === 'kaeng' ? t('Kaeng') : t('Minigame'), t('Minigame'));
+  setTitle(sub === 'kaeng' ? t('Kaeng') : sub === 'tienlen' ? t('Tien Len') : t('Minigame'), t('Minigame'));
   let cleanup = null;
   // Switch between the passcode screen and the games (after unlocking / pressing Lock)
   const lock = () => { store.del(OK_KEY); show(); };
   const show = () => {
     cleanup?.(); page.replaceChildren();
     if (store.get(OK_KEY) !== '1') { cleanup = lockScreen(page, show); return; }
-    page.innerHTML = `<div class="game-tabs seg"><a href="#/game" class="${sub ? '' : 'active'}">${icon('cards')} ${t('Draw a card')}</a><a href="#/game/kaeng" class="${sub === 'kaeng' ? 'active' : ''}">${icon('users')} ${t('Kaeng')}</a></div><div id="g-body"></div>`;
+    page.innerHTML = `<div class="game-tabs seg"><a href="#/game" class="${sub ? '' : 'active'}">${icon('cards')} ${t('Draw a card')}</a><a href="#/game/kaeng" class="${sub === 'kaeng' ? 'active' : ''}">${icon('users')} ${t('Kaeng')}</a><a href="#/game/tienlen" class="${sub === 'tienlen' ? 'active' : ''}">${icon('layers')} ${t('Tien Len')}</a></div><div id="g-body"></div>`;
     const body = $('#g-body', page);
-    cleanup = sub === 'kaeng' ? kaengScreen(body, lock) : gameScreen(body, lock);
+    cleanup = sub === 'kaeng' ? kaengScreen(body, lock) : sub === 'tienlen' ? tienlenScreen(body, lock) : gameScreen(body, lock);
   };
   show();
   return () => cleanup?.();

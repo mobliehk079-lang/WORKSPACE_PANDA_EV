@@ -168,19 +168,20 @@ function renderShell() {
 }
 
 // ======================================================================
-// Live updates (game invites, Kaeng rooms) — one EventSource for the whole app
+// Live updates (game invites, card-game rooms) — one EventSource for the whole app
 // ======================================================================
 let liveSrc = null;
 function startLive() {
   liveSrc?.close();
   if (!window.EventSource) return;
   liveSrc = new EventSource('/api/live');
-  liveSrc.addEventListener('kaeng', (e) => { let d = null; try { d = JSON.parse(e.data); } catch { return; } window.dispatchEvent(new CustomEvent('tw:kaeng', { detail: d })); });
+  liveSrc.addEventListener('cards', (e) => { let d = null; try { d = JSON.parse(e.data); } catch { return; } window.dispatchEvent(new CustomEvent('tw:cards', { detail: d })); });
   liveSrc.addEventListener('invite', (e) => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
-    window.dispatchEvent(new CustomEvent('tw:kaeng-invite', { detail: d }));
-    toast(`<b>${esc(t('{name} invited you to play Kaeng', { name: d.from }))}</b><br><small>${esc(t('Tap to join room {code}', { code: d.room }))}</small>`, 'info', {
-      ms: 12000, onClick: () => { try { sessionStorage.setItem('pev-kaeng-join', d.room); } catch { /* */ } location.hash = '#/game/kaeng'; window.dispatchEvent(new CustomEvent('tw:kaeng-join')); },
+    window.dispatchEvent(new CustomEvent('tw:cards-invite', { detail: d }));
+    const game = d.game === 'tienlen' ? 'tienlen' : 'kaeng';
+    toast(`<b>${esc(t('{name} invited you to play {game}', { name: d.from, game: game === 'tienlen' ? t('Tien Len') : t('Kaeng') }))}</b><br><small>${esc(t('Tap to join room {code}', { code: d.room }))}</small>`, 'info', {
+      ms: 12000, onClick: () => { try { sessionStorage.setItem('pev-cards-join', d.room); } catch { /* */ } location.hash = `#/game/${game}`; window.dispatchEvent(new CustomEvent('tw:cards-join')); },
     });
   });
 }
@@ -428,7 +429,7 @@ const ROUTES = [
   [/^#\/report$/, renderReport],
   [/^#\/monitor$/, renderMonitor],
   [/^#\/users$/, renderUsers],
-  [/^#\/game(?:\/(kaeng))?$/, renderGame],
+  [/^#\/game(?:\/(kaeng|tienlen))?$/, renderGame],
 ];
 
 async function route() {

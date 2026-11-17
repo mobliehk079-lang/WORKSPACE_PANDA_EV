@@ -1090,3 +1090,35 @@ button.srow:hover { background: var(--glass-2); }
 @keyframes kgHit { 0%, 100% { transform: none; } 15% { transform: translate(-7px, 3px) rotate(-6deg); } 30% { transform: translate(6px, -4px) rotate(5deg); } 45% { transform: translate(-5px, 2px) rotate(-3deg); } 60% { transform: translate(3px, -1px); } }
 .kt-felt.shake { animation: kgShake .45s ease-out; }
 @keyframes kgShake { 20% { transform: translate(-4px, 2px); } 40% { transform: translate(4px, -3px); } 60% { transform: translate(-2px, 2px); } 80% { transform: translate(2px, -1px); } }
+
+/* Tiến Lên table */
+.kt-hand.many .kc { --w: 74px; margin: 0 -21px; transform: rotate(calc(var(--i) * 1.6deg)) translateY(calc(var(--i) * var(--i) * .6px)); }
+.kt-hand.many .kc:hover { transform: rotate(calc(var(--i) * 1.6deg)) translateY(-8px); }
+.kt-hand.many .kc.sel { transform: rotate(calc(var(--i) * 1.6deg)) translateY(-24px); }
+.tl-pile { left: 50%; top: 45%; }
+.tl-pile .kc { margin: 0 -26px; }
+.tl-empty { padding: 8px 18px; border-radius: 12px; border: 2px dashed rgba(255, 255, 255, .35); color: rgba(255, 255, 255, .7); font-size: .9rem; }
+.kt-seat.passed .kt-av { opacity: .55; }
+.kt-bubble.grey { background: linear-gradient(135deg, #94a3b8, #475569); }
+.kt-pill.grey { background: linear-gradient(180deg, #94a3b8, #64748b); min-width: 90px; }
+.tl-preview { position: absolute; left: 50%; bottom: calc(3% + 54px); transform: translateX(-50%); z-index: 2; padding: 3px 12px; border-radius: 99px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+.tl-preview.ok { background: #dcfce7; color: #166534; }
+.tl-preview.no { background: #fee2e2; color: #991b1b; }
+.kt-status .kc.sm { --w: 20px; vertical-align: middle; margin: 0 2px; }
+.kg-place { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .85rem; background: var(--glass-strong); }
+.kg-player.won .kg-place { background: linear-gradient(135deg, #f59e0b, #ea580c); color: #fff; }
+@media (max-width: 760px) {
+  .kt-hand.many .kc { --w: 54px; margin: 0 -18px; }
+  .tl-pile .kc { --w: 50px; margin: 0 -18px; }
+  .kt-pill.grey { min-width: 0; }
+  .tl-preview { bottom: calc(4% + 46px); }
+}
+.kt-pill { white-space: nowrap; }
+@media (max-width: 760px) {
+  .kt-felt { margin-top: 26px; }
+  .kt-room { top: -26px; }
+  .tl-preview { bottom: auto; top: 62%; }
+  .kt .kt-status { top: 71%; }
+  .kt-pills { gap: 6px; }
+  .kt-pill { padding: 8px 13px; font-size: .9rem; }
+}
