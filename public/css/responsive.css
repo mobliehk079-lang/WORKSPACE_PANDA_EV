@@ -241,3 +241,5 @@ body.modal-open { overflow: hidden; }
 @media (max-width: 640px) {
   .rv-body.portrait { grid-template-columns: minmax(0, 1fr); }
 }
+.pwreq-card { margin-bottom: 16px; }
+.pwreq-card .card-title { padding: 8px 14px 0; }

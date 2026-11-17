@@ -22,6 +22,7 @@ export async function renderUsers(page) {
       <select class="input" id="us-dept"><option value="">${t('All departments')}</option><option value="-">${t('No department (management)')}</option>${S.depts.map((d) => `<option value="${d.code}">${esc(deptName(d))}</option>`).join('')}</select>
       <span class="muted" id="us-count" style="font-size:.86rem"></span>
     </div>
+    <div id="us-pw"></div>
     <div class="glass card ulist-wrap"><div class="ulist" id="us-list"><div class="skeleton"></div></div></div>`;
   const st = { status: 'all', q: '', role: '', dept: '' };
   let users = [];
@@ -45,7 +46,37 @@ export async function renderUsers(page) {
              ${u.id !== S.me.id ? `<button class="btn btn-sm ${u.status === 'active' ? 'btn-danger' : 'btn-ok'}" data-a="toggle">${u.status === 'active' ? t('Disable') : t('Enable')}</button>` : ''}`}</div>
       </div>`).join('') : emptyState(t('No users found'), 'users');
   };
-  const load = async () => { users = await api('/api/admin/users'); draw(); };
+  // Password change requests waiting for approval
+  const pwBox = $('#us-pw', page);
+  let pwReqs = [];
+  const drawPw = () => {
+    pwBox.innerHTML = pwReqs.length ? `<div class="glass card ulist-wrap pwreq-card"><h3 class="card-title">${icon('key')} ${t('Password change requests')} <span class="count-pill">${pwReqs.length}</span></h3>
+      <div class="ulist">${pwReqs.map((r) => `<div class="urow pwreq" data-r="${r.id}">
+        <div class="who">${avatar({ ...r, id: r.user_id })}<div style="min-width:0"><b>${esc(r.name)}</b><small>${esc(r.email)}</small></div></div>
+        <div data-l="${t('Role')}">${roleBadge(r.role)}</div>
+        <div data-l="${t('Department')}">${r.dept_code ? deptChip(r.dept_code) : `<span class="muted">—</span>`}</div>
+        <div data-l="${t('Requested')}"><small class="muted">${fmtDate(r.created_at.slice(0, 10), { year: true })} ${r.created_at.slice(11, 16)}</small></div>
+        <div class="uact"><button class="btn btn-sm btn-ok" data-pa="approve">${icon('check')} ${t('Approve')}</button><button class="btn btn-sm btn-danger" data-pa="reject">${icon('x')} ${t('Reject')}</button></div>
+      </div>`).join('')}</div></div>` : '';
+  };
+  pwBox.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-pa]'); if (!b) return;
+    const r = pwReqs.find((x) => x.id === Number(b.closest('[data-r]').dataset.r));
+    const approve = b.dataset.pa === 'approve';
+    const ok = await confirmDialog(approve ? t('Approve new password') : t('Reject password change'),
+      approve ? t('{name} will log in with the new password they chose from now on.', { name: r.name }) : t('{name} keeps the current password.', { name: r.name }),
+      { ok: approve ? t('Approve') : t('Reject'), danger: !approve });
+    if (!ok) return;
+    try {
+      await api(`/api/admin/password-requests/${r.id}`, { method: 'POST', body: { action: b.dataset.pa } });
+      toast(approve ? t('New password approved') : t('Password change rejected'), 'ok');
+    } catch (err) { toastErr(err); }
+    await load();
+  });
+  const load = async () => {
+    [users, pwReqs] = await Promise.all([api('/api/admin/users'), api('/api/admin/password-requests')]);
+    draw(); drawPw();
+  };
   segmented($('#us-st', page), (v) => { st.status = v; draw(); });
   $('#us-q', page).addEventListener('input', debounce((e) => { st.q = e.target.value.trim(); draw(); }, 150));
   $('#us-role', page).addEventListener('change', (e) => { st.role = e.target.value; draw(); });

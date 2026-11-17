@@ -49,7 +49,7 @@ function parseCookies(h = '') {
 function getUser(req) {
   const token = parseCookies(req.headers.cookie)[COOKIE];
   if (!token) return null;
-  const row = db.prepare(`SELECT u.id,u.name,u.email,u.role,u.dept_id,u.title,u.presence,u.status,d.code dept_code,s.expires_at
+  const row = db.prepare(`SELECT u.id,u.name,u.email,u.role,u.dept_id,u.title,u.presence,u.status,u.avatar,d.code dept_code,s.expires_at
     FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN departments d ON d.id=u.dept_id WHERE s.token=?`).get(token);
   if (!row) return null;
   if (row.expires_at < Date.now() || row.status !== 'active') { db.prepare('DELETE FROM sessions WHERE token=?').run(token); return null; }
@@ -156,20 +156,86 @@ route('PATCH', '/api/me/presence', async ({ req, user }) => {
   return { presence };
 });
 
+// ---------- My profile: name / job title / photo; password changes wait for a super admin ----------
+const pendingPwRequest = (userId) => db.prepare("SELECT id,created_at FROM password_requests WHERE user_id=? AND status='pending'").get(userId) || null;
+
+route('PATCH', '/api/me/profile', async ({ req, user }) => {
+  const b = await readJson(req);
+  const f = {};
+  if ('name' in b) { f.name = str(b.name, 120); if (!f.name) throw bad('Please enter your full name'); }
+  if ('title' in b) f.title = str(b.title, 120);
+  const keys = Object.keys(f);
+  if (keys.length) db.prepare(`UPDATE users SET ${keys.map((k) => `${k}=?`).join(',')} WHERE id=?`).run(...keys.map((k) => f[k]), user.id);
+  return db.prepare('SELECT id,name,title,avatar FROM users WHERE id=?').get(user.id);
+});
+
+route('GET', '/api/me/password', ({ user }) => ({ request: pendingPwRequest(user.id), direct: isSuper(user) }));
+
+/** Super admins change their own password at once; everyone else sends a request that a super admin approves */
 route('POST', '/api/me/password', async ({ req, user }) => {
+  const th = throttle(req, 'password', 10);
   const { current, password } = await readJson(req);
   const u = db.prepare('SELECT password_hash FROM users WHERE id=?').get(user.id);
-  if (!verifyPassword(String(current || ''), u.password_hash)) throw bad('Current password is incorrect');
+  if (!verifyPassword(String(current || ''), u.password_hash)) { th.fail(); throw bad('Current password is incorrect'); }
   checkPassword(password);
-  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(password), user.id);
+  if (isSuper(user)) {
+    db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(password), user.id);
+    return { ok: true, applied: true };
+  }
+  const id = tx(db, () => {
+    db.prepare("UPDATE password_requests SET status='cancelled', decided_at=? WHERE user_id=? AND status='pending'").run(localIso(), user.id);
+    return Number(db.prepare('INSERT INTO password_requests (user_id,password_hash,created_at) VALUES (?,?,?)').run(user.id, hashPassword(password), localIso()).lastInsertRowid);
+  });
+  for (const s of db.prepare("SELECT id FROM users WHERE role='superadmin' AND status='active'").all())
+    notify(s.id, 'pw-request', '{name} asked to change their password', user.email, '#/users', { name: user.name }, `pw-request:${id}`);
+  return { ok: true, applied: false, request: pendingPwRequest(user.id) };
+});
+
+route('DELETE', '/api/me/password', ({ user }) => {
+  const ids = db.prepare("SELECT id FROM password_requests WHERE user_id=? AND status='pending'").all(user.id);
+  db.prepare("UPDATE password_requests SET status='cancelled', decided_at=? WHERE user_id=? AND status='pending'").run(localIso(), user.id);
+  for (const r of ids) db.prepare("UPDATE notifications SET is_read=1 WHERE type='pw-request' AND ref_key=?").run(`pw-request:${r.id}`);
   return { ok: true };
 });
+
+// Profile photo: the browser crops/resizes it to a small square first; stored next to the uploads
+const AVATAR_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const AVATAR_RE = /^av-[a-f0-9]{32}\.(jpg|png|webp)$/;
+const AVATAR_MAX = 2 * 1024 * 1024;
+route('POST', '/api/me/avatar', async ({ req, user }) => {
+  const ext = AVATAR_EXT[String(req.headers['content-type'] || '').split(';')[0].trim()];
+  if (!ext) throw new HttpError(415, 'Please choose a JPG, PNG or WebP image');
+  const chunks = []; let size = 0;
+  for await (const c of req) { size += c.length; if (size > AVATAR_MAX) throw new HttpError(413, 'File is larger than {mb} MB', { mb: 2 }); chunks.push(c); }
+  if (!size) throw bad('The file is empty');
+  const stored = `av-${crypto.randomBytes(16).toString('hex')}.${ext}`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, stored), Buffer.concat(chunks));
+  const old = db.prepare('SELECT avatar FROM users WHERE id=?').get(user.id).avatar;
+  db.prepare('UPDATE users SET avatar=? WHERE id=?').run(stored, user.id);
+  if (old && AVATAR_RE.test(old)) fs.rm(path.join(UPLOAD_DIR, old), { force: true }, () => {});
+  return { avatar: stored };
+});
+route('DELETE', '/api/me/avatar', ({ user }) => {
+  const old = db.prepare('SELECT avatar FROM users WHERE id=?').get(user.id).avatar;
+  db.prepare('UPDATE users SET avatar=NULL WHERE id=?').run(user.id);
+  if (old && AVATAR_RE.test(old)) fs.rm(path.join(UPLOAD_DIR, old), { force: true }, () => {});
+  return { avatar: null };
+});
+function serveAvatar(req, res, name) {
+  if (!AVATAR_RE.test(name) || !db.prepare('SELECT 1 FROM users WHERE avatar=?').get(name)) throw new HttpError(404, 'File not found');
+  const file = path.join(UPLOAD_DIR, name);
+  if (!fs.existsSync(file)) throw new HttpError(404, 'File not found');
+  const mime = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }[extOf(name)];
+  // Every new photo gets a new name, so the browser may keep this one for good
+  res.writeHead(200, { 'Content-Type': mime, 'Content-Length': fs.statSync(file).size, 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' });
+  fs.createReadStream(file).pipe(res);
+}
 
 // ======================================================================
 // User management (super admin only)
 // ======================================================================
 const requireSuper = (u) => { if (!isSuper(u)) deny('Only the super admin can manage users'); };
-const USER_COLS = `u.id,u.name,u.email,u.role,u.dept_id,u.title,u.presence,u.status,u.created_at,d.code dept_code,
+const USER_COLS = `u.id,u.name,u.email,u.role,u.dept_id,u.title,u.presence,u.status,u.avatar,u.created_at,d.code dept_code,
   (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id=u.id AND t.status!='done') open_tasks,
   (SELECT MAX(s.expires_at) FROM sessions s WHERE s.user_id=u.id) last_session`;
 
@@ -177,6 +243,29 @@ route('GET', '/api/admin/users', ({ user }) => {
   requireSuper(user);
   return db.prepare(`SELECT ${USER_COLS} FROM users u LEFT JOIN departments d ON d.id=u.dept_id
     ORDER BY CASE u.status WHEN 'pending' THEN 0 ELSE 1 END, CASE u.role WHEN 'superadmin' THEN 0 WHEN 'admin' THEN 1 WHEN 'supervisor' THEN 2 ELSE 3 END, u.dept_id, u.id`).all();
+});
+
+// Password change requests from users
+route('GET', '/api/admin/password-requests', ({ user }) => {
+  requireSuper(user);
+  return db.prepare(`SELECT r.id,r.created_at,u.id user_id,u.name,u.email,u.role,u.avatar,u.dept_id,d.code dept_code FROM password_requests r
+    JOIN users u ON u.id=r.user_id LEFT JOIN departments d ON d.id=u.dept_id WHERE r.status='pending' ORDER BY r.id`).all();
+});
+route('POST', '/api/admin/password-requests/:id', async ({ req, user, params }) => {
+  requireSuper(user);
+  const { action } = await readJson(req);
+  if (!['approve', 'reject'].includes(action)) throw bad('Invalid request data');
+  const r = db.prepare("SELECT * FROM password_requests WHERE id=? AND status='pending'").get(Number(params.id));
+  if (!r) throw new HttpError(404, 'This request was already handled or cancelled');
+  tx(db, () => {
+    db.prepare('UPDATE password_requests SET status=?, decided_by=?, decided_at=? WHERE id=?').run(action === 'approve' ? 'approved' : 'rejected', user.id, localIso(), r.id);
+    // The user keeps this session (they asked for the change); every new log-in uses the new password
+    if (action === 'approve') db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(r.password_hash, r.user_id);
+  });
+  db.prepare("UPDATE notifications SET is_read=1 WHERE type='pw-request' AND ref_key=?").run(`pw-request:${r.id}`);
+  if (action === 'approve') notify(r.user_id, 'pw-approved', 'Your new password was approved', '', '');
+  else notify(r.user_id, 'pw-rejected', 'Your password change was not approved', '', '');
+  return { ok: true };
 });
 
 function validateUserFields(b, { partial = false } = {}) {
@@ -233,6 +322,8 @@ route('PATCH', '/api/admin/users/:id', async ({ req, user, params }) => {
     // Moving department / disabling / password reset → end existing sessions
     if ((f.status && f.status !== 'active') || f.password_hash || (deptId !== target.dept_id) || (f.role && f.role !== target.role))
       db.prepare('DELETE FROM sessions WHERE user_id=?').run(target.id);
+    // An admin reset replaces any password change the user was waiting for
+    if (f.password_hash) db.prepare("UPDATE password_requests SET status='cancelled', decided_at=? WHERE user_id=? AND status='pending'").run(localIso(), target.id);
     // Leaving a department → unassign open tasks there so nothing is stuck with someone who cannot see it
     if (deptId !== target.dept_id) {
       db.prepare("UPDATE tasks SET assignee_id=NULL WHERE assignee_id=? AND status!='done'").run(target.id);
@@ -247,12 +338,12 @@ route('PATCH', '/api/admin/users/:id', async ({ req, user, params }) => {
 // ======================================================================
 route('GET', '/api/users', ({ user }) => {
   const depts = visibleDeptIds(db, user);
-  return db.prepare(`SELECT u.id,u.name,u.role,u.title,u.presence,u.dept_id,d.code dept_code FROM users u LEFT JOIN departments d ON d.id=u.dept_id
+  return db.prepare(`SELECT u.id,u.name,u.role,u.title,u.presence,u.avatar,u.dept_id,d.code dept_code FROM users u LEFT JOIN departments d ON d.id=u.dept_id
     WHERE u.status='active' AND (u.dept_id IN (${inList(depts)}) OR u.role IN ('admin','superadmin')) ORDER BY u.dept_id, u.id`).all(...depts);
 });
 
 /** Everyone who can be added as a coworker on a task — staff and supervisors of every department (work is often shared) */
-route('GET', '/api/colleagues', () => db.prepare(`SELECT u.id,u.name,u.role,u.title,u.presence,u.dept_id,d.code dept_code FROM users u JOIN departments d ON d.id=u.dept_id
+route('GET', '/api/colleagues', () => db.prepare(`SELECT u.id,u.name,u.role,u.title,u.presence,u.avatar,u.dept_id,d.code dept_code FROM users u JOIN departments d ON d.id=u.dept_id
   WHERE u.status='active' AND u.role IN ('staff','supervisor') ORDER BY u.dept_id, CASE u.role WHEN 'supervisor' THEN 0 ELSE 1 END, u.name`).all());
 
 route('GET', '/api/team', ({ user, query }) => {
@@ -754,6 +845,7 @@ route('GET', '/api/notifications', ({ user }) => {
     const depts = reviewDepts(user);
     out.reviewCount = db.prepare(`SELECT COUNT(*) c FROM tasks WHERE status='review' AND dept_id IN (${inList(depts)})`).get(...depts).c;
   }
+  if (isSuper(user)) out.pwRequests = db.prepare("SELECT COUNT(*) c FROM password_requests WHERE status='pending'").get().c;
   return out;
 });
 route('POST', '/api/notifications/read', async ({ req, user }) => {
@@ -1117,6 +1209,11 @@ const server = http.createServer(async (req, res) => {
       const user = getUser(req);
       if (!user) throw new HttpError(401, 'Please log in');
       return serveUpload(req, res, user, Number(fm[1]), url.searchParams.get('download') === '1');
+    }
+    const am = /^\/avatars\/([\w.-]+)$/.exec(url.pathname);
+    if (am && req.method === 'GET') {
+      if (!getUser(req)) throw new HttpError(401, 'Please log in');
+      return serveAvatar(req, res, am[1]);
     }
     if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url.pathname);

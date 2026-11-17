@@ -1,6 +1,6 @@
 import {
   S, api, esc, $, $$, h, icon, toast, toastErr, avatar, roleBadge, PRESENCE, DEPT_ICON, STATUS_LABEL, timeAgo, dept, deptShort, setTitle,
-  t, lang, APP_NAME, LOGO, openModal, watchVideos,
+  t, lang, APP_NAME, LOGO, openModal, watchVideos, indexAvatars, confirmDialog, fmtDate, deptName, ROLE,
 } from './utils.js';
 import { setLang } from './i18n.js';
 import { renderDashboard } from './views/dashboard.js';
@@ -132,7 +132,7 @@ function renderShell() {
     <aside class="sidebar glass" id="sidebar">
       <div class="brand"><div class="brand-logo">${LOGO}</div><div class="nl"><b>PANDA EV</b><small>WORKSPACE</small></div></div>
       ${navHtml()}
-      <div class="sidebar-foot"><button class="me-card" id="me-btn" aria-haspopup="menu">${avatar(me, '', true)}<div class="meta nl"><b>${esc(me.name)}</b><small>${roleBadge(me.role)} ${me.dept_code ? esc(deptShort(dept(me.dept_code))) : ''}</small></div></button></div>
+      <div class="sidebar-foot">${meCardHtml()}</div>
     </aside>
     <div class="mobile-backdrop" id="mback"></div>
     <main class="main">
@@ -155,12 +155,23 @@ function renderShell() {
   $('#menu').onclick = () => { sb.classList.add('open'); mb.classList.add('show'); };
   mb.onclick = closeMenu;
   $$('.nav a', sb).forEach((a) => a.addEventListener('click', closeMenu));
-  $('#me-btn').onclick = (e) => userMenu(e);
+  bindMeCard();
   renderPresence();
   $('#bell').onclick = toggleNotifications;
   pollNotifications();
   clearInterval(pollTimer);
   pollTimer = setInterval(pollNotifications, 20000);
+}
+
+const meCardHtml = () => { const me = S.me; return `<button class="me-card" id="me-btn" aria-haspopup="menu" title="${t('My profile')}">${avatar(me, '', true)}<div class="meta nl"><b>${esc(me.name)}</b><small>${roleBadge(me.role)} ${me.dept_code ? esc(deptShort(dept(me.dept_code))) : ''}</small></div></button>`; };
+const bindMeCard = () => { $('#me-btn').onclick = (e) => userMenu(e); };
+/** After my name/photo changed: update every copy the app keeps, then redraw */
+function refreshMe(changes) {
+  Object.assign(S.me, changes);
+  for (const list of [S.users, S.colleagues]) for (const u of list || []) if (u.id === S.me.id) Object.assign(u, changes);
+  indexAvatars();
+  const foot = $('.sidebar-foot');
+  if (foot) { foot.innerHTML = meCardHtml(); bindMeCard(); }
 }
 
 function userMenu(e) {
@@ -169,8 +180,9 @@ function userMenu(e) {
   const ex = $('.menu', wrap); if (ex) return ex.remove();
   const m = h(`<div class="menu glass up">
     <div class="menu-head"><b>${esc(S.me.name)}</b><small>${esc(S.me.email)}</small></div>
-    <div class="menu-lang">${icon('globe')}${langSwitch()}</div>
+    <button data-a="profile">${icon('user')}${t('My profile')}</button>
     <button data-a="pw">${icon('key')}${t('Change password')}</button>
+    <div class="menu-lang">${icon('globe')}${langSwitch()}</div>
     <button data-a="out" class="btn-danger">${icon('logout')}${t('Log out')}</button></div>`);
   wrap.appendChild(m);
   bindLang(m);
@@ -179,22 +191,121 @@ function userMenu(e) {
     const a = ev.target.closest('[data-a]')?.dataset.a; if (!a) return;
     m.remove();
     if (a === 'out') { await api('/api/logout', { method: 'POST' }).catch(() => {}); S.me = null; history.replaceState(null, '', '#/'); showLogin(); }
-    if (a === 'pw') changePassword();
+    if (a === 'profile') openProfile();
+    if (a === 'pw') openProfile({ focusPassword: true });
   });
   setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }));
 }
 
-function changePassword() {
-  const m = openModal(`<div class="modal-head"><h2>${icon('key')} ${t('Change password')}</h2><button class="btn btn-icon btn-ghost" data-close aria-label="${t('Close')}">${icon('x')}</button></div>
-    <form id="cpw"><div class="field"><label>${t('Current password')}</label><input class="input" type="password" name="current" required autocomplete="current-password"></div>
-    <div class="field"><label>${t('New password')}</label><input class="input" type="password" name="password" required minlength="8" autocomplete="new-password"><small class="hint">${t('At least 8 characters')}</small></div>
-    <div class="error-text" id="cpw-err"></div><div class="modal-foot"><button type="button" class="btn" data-close>${t('Cancel')}</button><button class="btn btn-primary">${t('Save')}</button></div></form>`);
-  const f = $('#cpw', m.el);
-  f.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try { await api('/api/me/password', { method: 'POST', body: { current: f.current.value, password: f.password.value } }); toast(t('Password changed'), 'ok'); m.close(); }
-    catch (err) { $('#cpw-err', m.el).textContent = err.message; }
+// ======================================================================
+// My profile — photo, name, job title; password change (approved by a super admin)
+// ======================================================================
+/** Center-crop to a square and shrink to 320px so photos stay small and load fast everywhere */
+async function squarePhoto(file) {
+  const img = await createImageBitmap(file).catch(() => null);
+  if (!img) throw new Error(t('This image cannot be opened. Please choose a JPG, PNG or WebP image'));
+  const side = Math.min(img.width, img.height), out = Math.min(320, side);
+  const c = document.createElement('canvas'); c.width = c.height = out;
+  c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, out, out);
+  img.close?.();
+  return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error(t('Upload failed')))), 'image/jpeg', 0.88));
+}
+
+function openProfile({ focusPassword = false } = {}) {
+  let changed = false;
+  const me = S.me;
+  const d = me.dept_code ? dept(me.dept_code) : null;
+  const m = openModal(`<div class="modal-head"><h2>${icon('user')} ${t('My profile')}</h2><button class="btn btn-icon btn-ghost" data-close aria-label="${t('Close')}">${icon('x')}</button></div>
+    <div class="profile-top">
+      <div id="pf-av"></div>
+      <div class="profile-photo-btns">
+        <label class="btn btn-sm">${icon('image')} ${t('Change photo')}<input type="file" id="pf-file" accept="image/jpeg,image/png,image/webp" hidden></label>
+        <button type="button" class="btn btn-sm btn-ghost" id="pf-rm">${icon('trash')} ${t('Remove photo')}</button>
+        <small class="hint">${t('JPG, PNG or WebP. It is cropped to a square.')}</small>
+      </div>
+    </div>
+    <div class="profile-facts">
+      <div><span>${t('Email')}</span><b>${esc(me.email)}</b></div>
+      <div><span>${t('Role')}</span><b>${roleBadge(me.role)}</b></div>
+      <div><span>${t('Department')}</span><b>${d ? esc(deptName(d)) : '—'}</b></div>
+    </div>
+    <form id="pf-form" class="profile-sec">
+      <div class="row"><div class="field"><label for="pf-name">${t('Full name')} *</label><input class="input" id="pf-name" name="name" required maxlength="120" value="${esc(me.name)}" autocomplete="name"></div>
+        <div class="field"><label for="pf-title">${t('Job title')}</label><input class="input" id="pf-title" name="title" maxlength="120" value="${esc(me.title || '')}" autocomplete="organization-title"></div></div>
+      <div class="error-text" id="pf-err"></div>
+      <div class="modal-foot" style="margin-top:0"><button class="btn btn-primary">${icon('check')} ${t('Save')}</button></div>
+    </form>
+    <div class="profile-sec" id="pf-pw"><div class="skeleton" style="min-height:120px"></div></div>`, { onClose: () => { if (changed) { window.dispatchEvent(new CustomEvent('tw:changed')); route(); } } });
+
+  const drawAvatar = () => {
+    $('#pf-av', m.el).innerHTML = avatar(S.me, 'xl profile-av');
+    $('#pf-rm', m.el).hidden = !S.me.avatar;
+  };
+  drawAvatar();
+
+  $('#pf-file', m.el).addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    const lbl = e.target.closest('label'); lbl.classList.add('loading');
+    try {
+      const blob = await squarePhoto(file);
+      const r = await api('/api/me/avatar', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
+      refreshMe({ avatar: r.avatar }); drawAvatar(); changed = true;
+      toast(t('Profile photo updated'), 'ok');
+    } catch (err) { toastErr(err); }
+    finally { lbl.classList.remove('loading'); }
   });
+  $('#pf-rm', m.el).addEventListener('click', async () => {
+    try { await api('/api/me/avatar', { method: 'DELETE' }); refreshMe({ avatar: null }); drawAvatar(); changed = true; toast(t('Profile photo removed'), 'ok'); }
+    catch (err) { toastErr(err); }
+  });
+
+  const pf = $('#pf-form', m.el);
+  pf.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('#pf-err', m.el).textContent = '';
+    try {
+      const r = await api('/api/me/profile', { method: 'PATCH', body: { name: pf.name.value, title: pf.title.value } });
+      refreshMe({ name: r.name, title: r.title }); drawAvatar(); changed = true;
+      toast(t('Changes saved'), 'ok');
+    } catch (err) { $('#pf-err', m.el).textContent = err.message; }
+  });
+
+  const pwBox = $('#pf-pw', m.el);
+  async function drawPw() {
+    let st;
+    try { st = await api('/api/me/password'); } catch (err) { pwBox.innerHTML = `<div class="error-text">${esc(err.message)}</div>`; return; }
+    const pending = st.request;
+    pwBox.innerHTML = `<h3 class="profile-h">${icon('key')} ${t('Change password')}</h3>
+      ${pending ? `<div class="pw-pending">${icon('hourglass')}<div style="flex:1;min-width:0"><b>${t('Waiting for administrator approval')}</b><small>${t('Requested {date}. Your current password keeps working until it is approved.', { date: `${fmtDate(pending.created_at.slice(0, 10), { year: true })} ${pending.created_at.slice(11, 16)}` })}</small></div>
+        <button type="button" class="btn btn-sm" id="pw-cancel">${t('Cancel request')}</button></div>` : ''}
+      <form id="pw-form">
+        <div class="field"><label for="pw-cur">${t('Current password')}</label><input class="input" id="pw-cur" type="password" name="current" required autocomplete="current-password"></div>
+        <div class="row"><div class="field"><label for="pw-new">${t('New password')}</label><input class="input" id="pw-new" type="password" name="password" required minlength="8" autocomplete="new-password"><small class="hint">${t('At least 8 characters')}</small></div>
+          <div class="field"><label for="pw-new2">${t('Confirm new password')}</label><input class="input" id="pw-new2" type="password" name="password2" required minlength="8" autocomplete="new-password"></div></div>
+        ${st.direct ? '' : `<p class="hint" style="margin:0 0 10px">${icon('shield')} ${pending ? t('Sending a new request replaces the one that is waiting.') : t('A super admin must approve the new password before you can use it.')}</p>`}
+        <div class="error-text" id="pw-err"></div>
+        <div class="modal-foot" style="margin-top:0"><button class="btn btn-primary">${st.direct ? t('Change password') : t('Send for approval')}</button></div>
+      </form>`;
+    $('#pw-cancel', pwBox)?.addEventListener('click', async () => {
+      if (!(await confirmDialog(t('Cancel request'), t('Cancel your password change request?'), { ok: t('Cancel request'), danger: true }))) return;
+      try { await api('/api/me/password', { method: 'DELETE' }); toast(t('Request cancelled'), 'ok'); drawPw(); } catch (err) { toastErr(err); }
+    });
+    const f = $('#pw-form', pwBox);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = $('#pw-err', pwBox); err.textContent = '';
+      if (f.password.value !== f.password2.value) { err.textContent = t('The new passwords do not match'); return; }
+      const btn = $('button.btn-primary', f); btn.disabled = true;
+      try {
+        const r = await api('/api/me/password', { method: 'POST', body: { current: f.current.value, password: f.password.value } });
+        toast(r.applied ? t('Password changed') : t('Request sent. A super admin will review it'), 'ok', { ms: 5000 });
+        drawPw();
+      } catch (e2) { err.textContent = e2.message; btn.disabled = false; }
+    });
+    if (focusPassword) { focusPassword = false; pwBox.scrollIntoView({ block: 'nearest' }); $('#pw-cur', pwBox).focus({ preventScroll: true }); }
+  }
+  drawPw();
 }
 
 function renderPresence() {
@@ -226,6 +337,7 @@ const NOTI_STYLE = {
   rsvp: ['check', 'linear-gradient(135deg,#22d3ee,#0891b2)'], due: ['hourglass', 'linear-gradient(135deg,#fbbf24,#d97706)'],
   overdue: ['alert', 'linear-gradient(135deg,#f87171,#dc2626)'], changes: ['edit', 'linear-gradient(135deg,#fb923c,#ea580c)'],
   member: ['users', 'linear-gradient(135deg,#60a5fa,#7c3aed)'],
+  'pw-request': ['key', 'linear-gradient(135deg,#a78bfa,#6366f1)'], 'pw-approved': ['key', 'linear-gradient(135deg,#34d399,#059669)'], 'pw-rejected': ['key', 'linear-gradient(135deg,#f87171,#dc2626)'],
   charger: ['zap', 'linear-gradient(135deg,#f87171,#dc2626)'], 'charger-ok': ['zap', 'linear-gradient(135deg,#34d399,#059669)'], register: ['userPlus', 'linear-gradient(135deg,#a78bfa,#db2777)'],
 };
 function notiTitle(n) {
@@ -252,7 +364,7 @@ async function pollNotifications() {
     const pending = notiCache.items.filter((x) => x.type === 'meeting' && !x.is_read).length;
     const mc = $('#meet-count'); if (mc) { mc.hidden = !pending; mc.textContent = pending; }
     if (S.perms.manageUsers) {
-      const pu = notiCache.items.filter((x) => x.type === 'register' && !x.is_read).length;
+      const pu = notiCache.items.filter((x) => x.type === 'register' && !x.is_read).length + (notiCache.pwRequests || 0);
       const pc = $('#pending-count'); if (pc) { pc.hidden = !pu; pc.textContent = pu; }
     }
   } catch { /* quiet */ }
@@ -335,6 +447,7 @@ async function boot() {
     const b = await api('/api/bootstrap');
     Object.assign(S, { me: b.me, perms: b.permissions, depts: b.departments, today: b.today });
     [S.users, S.colleagues] = await Promise.all([api('/api/users'), api('/api/colleagues')]);
+    indexAvatars();
     lastUnread = -1;
     renderShell();
     if (!location.hash || location.hash === '#/' || location.hash === '#') history.replaceState(null, '', '#/dashboard');

@@ -81,6 +81,8 @@ const LO = {
   'Please enter the station name': 'ກະລຸນາໃສ່ຊື່ສະຖານີ',
   'Please enter the charger name': 'ກະລຸນາໃສ່ຊື່ຕູ້ສາກ',
   'This charger already has an open repair task': 'ຕູ້ສາກນີ້ມີວຽກສ້ອມແປງທີ່ຍັງບໍ່ແລ້ວຢູ່',
+  'Please choose a JPG, PNG or WebP image': 'ກະລຸນາເລືອກຮູບ JPG, PNG ຫຼື WebP',
+  'This request was already handled or cancelled': 'ຄຳຂໍນີ້ຖືກຈັດການ ຫຼື ຍົກເລີກໄປແລ້ວ',
 };
 
 export function translate(lang, key, vars = {}) {

@@ -35,8 +35,20 @@ CREATE TABLE IF NOT EXISTS users (
   title TEXT DEFAULT '',
   presence TEXT NOT NULL DEFAULT 'available' CHECK (presence IN ('available','busy','away')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','pending','disabled')),
+  avatar TEXT,
   created_at TEXT NOT NULL
 );
+-- A password change asked for by the user; it takes effect only after a super admin approves it
+CREATE TABLE IF NOT EXISTS password_requests (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  password_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+  created_at TEXT NOT NULL,
+  decided_by INTEGER REFERENCES users(id),
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_pwreq_user ON password_requests(user_id, status);
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -209,11 +221,14 @@ export function openDb(file = DB_FILE) {
     // โครงสร้างเปลี่ยน — ล้างข้อมูลเดโมเก่าแล้วสร้างใหม่
     console.log('Database schema changed: recreating demo data');
     db.exec('PRAGMA foreign_keys = OFF');
-    for (const t of ['charger_logs', 'chargers', 'stations', 'notifications', 'task_members', 'meeting_attendees', 'meetings', 'comments', 'files', 'tasks', 'sessions', 'users', 'departments']) db.exec(`DROP TABLE IF EXISTS ${t}`);
+    for (const t of ['charger_logs', 'chargers', 'stations', 'notifications', 'task_members', 'meeting_attendees', 'meetings', 'comments', 'files', 'tasks', 'password_requests', 'sessions', 'users', 'departments']) db.exec(`DROP TABLE IF EXISTS ${t}`);
     db.exec('PRAGMA foreign_keys = ON');
     for (const f of fs.readdirSync(UPLOAD_DIR)) fs.rmSync(path.join(UPLOAD_DIR, f), { force: true });
   }
   const hadStations = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stations'").get();
+  // Columns added later: add them to existing databases (no data is touched)
+  if (hasTables && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get()
+    && !db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'avatar')) db.exec('ALTER TABLE users ADD COLUMN avatar TEXT');
   db.exec(SCHEMA);
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   // Monitor added later: the first time, load the company's stations (only once, so deleting them later sticks)

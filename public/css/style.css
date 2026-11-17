@@ -166,7 +166,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .nav a .icon { width: 20px; height: 20px; }
 .nav a .count { margin-left: auto; font-size: .74rem; background: var(--bad); color: #fff; border-radius: 10px; padding: 0 7px; line-height: 1.6; }
 .nav .dept-dot { width: 10px; height: 10px; border-radius: 4px; margin: 0 5px; flex: none; }
-.sidebar-foot { margin-top: auto; padding-top: 14px; }
+.sidebar-foot { margin-top: auto; padding-top: 14px; position: relative; }
 .me-card { width: 100%; text-align: left; cursor: pointer; transition: background .2s; display: flex; gap: 10px; align-items: center; padding: 10px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-border); }
 .me-card .meta { min-width: 0; flex: 1; }
 .me-card b { display: block; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -242,6 +242,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 /* ---------- Avatar ---------- */
 .avatar { --size: 36px; width: var(--size); height: var(--size); border-radius: 50%; display: inline-grid; place-items: center; color: #fff; font-weight: 600; font-size: calc(var(--size) * .4); flex: none; background: linear-gradient(135deg, var(--dc1, #8b5cf6), var(--dc2, #ec4899)); position: relative; box-shadow: 0 0 0 2px var(--glass-border); }
+.avatar > img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+.avatar.has-photo { background: var(--glass-2); }
 .avatar.sm { --size: 26px; } .avatar.lg { --size: 52px; } .avatar.xl { --size: 64px; }
 .avatar .pdot { position: absolute; right: -1px; bottom: -1px; width: 30%; height: 30%; min-width: 9px; min-height: 9px; box-shadow: 0 0 0 2px var(--glass-strong); }
 .avatars { display: flex; } .avatars .avatar { margin-left: -8px; } .avatars .avatar:first-child { margin-left: 0; }
@@ -473,6 +475,27 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .modal-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
 .modal-head h2 { margin: 0; font-size: 1.25rem; font-weight: 600; flex: 1; }
 .modal-foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
+/* My profile */
+.profile-top { display: flex; gap: 18px; align-items: center; margin-bottom: 16px; }
+.avatar.profile-av { --size: 88px; box-shadow: 0 0 0 3px var(--glass-border), 0 8px 24px rgba(99, 102, 241, .25); }
+.profile-photo-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.profile-photo-btns .hint { flex-basis: 100%; }
+.profile-photo-btns label.loading { opacity: .6; pointer-events: none; }
+.profile-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-border); margin-bottom: 18px; }
+.profile-facts span { display: block; font-size: .76rem; color: var(--muted); margin-bottom: 2px; }
+.profile-facts b { display: block; font-weight: 500; font-size: .88rem; overflow-wrap: anywhere; }
+.profile-sec + .profile-sec { border-top: 1px solid var(--hairline); margin-top: 18px; padding-top: 18px; }
+.profile-h { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 1rem; font-weight: 600; }
+.pw-pending { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 14px; margin-bottom: 14px; background: rgba(139, 92, 246, .12); border: 1px solid rgba(139, 92, 246, .3); }
+.pw-pending > svg { color: var(--accent); flex: none; }
+.pw-pending b { display: block; font-size: .9rem; }
+.pw-pending small { color: var(--muted); font-size: .8rem; }
+@media (max-width: 560px) {
+  .profile-top { flex-direction: column; text-align: center; }
+  .profile-photo-btns { justify-content: center; }
+  .profile-facts { grid-template-columns: minmax(0, 1fr); }
+  .pw-pending { flex-wrap: wrap; }
+}
 .overlay.drawer { place-items: stretch end; padding: 0; }
 .overlay.drawer .modal { width: min(720px, 100%); max-height: 100vh; height: 100vh; border-radius: 24px 0 0 24px; animation: drawerIn .5s var(--ease) both; }
 .overlay.drawer.closing .modal { animation: drawerOut .22s ease-in both; }

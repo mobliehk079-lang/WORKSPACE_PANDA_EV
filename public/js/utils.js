@@ -132,10 +132,30 @@ export const statusPill = (s) => `<span class="status-pill" style="--sc:${STATUS
 export const roleBadge = (r) => `<span class="role-badge role-${r}">${ROLE[r]}</span>`;
 // Lao leading vowels (ເ ແ ໂ ໄ ໃ) are written before the consonant — keep them together with it
 export const initials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((w) => (/^[ເແໂໄໃ]/.test(w) ? w.slice(0, 2) : [...w][0] || '')).join('');
+// Profile photos of everyone the app knows (S.me, S.users, S.colleagues): by id, and by name for objects that only carry a name
+let avById = new Map(), avByName = new Map();
+export function indexAvatars() {
+  avById = new Map(); avByName = new Map();
+  const seen = new Map();
+  for (const u of [S.me, ...(S.users || []), ...(S.colleagues || [])]) {
+    if (!u?.id || avById.has(u.id)) continue;
+    avById.set(u.id, u.avatar || null);
+    seen.set(u.name, (seen.get(u.name) || 0) + 1);
+    if (u.avatar) avByName.set(u.name, u.avatar);
+  }
+  for (const [n, c] of seen) if (c > 1) avByName.delete(n); // two people share a name: do not guess
+}
+const photoOf = (user) => {
+  if ('avatar' in user) return user.avatar;
+  if (user.id && user.name && avById.has(user.id)) return avById.get(user.id);
+  return avByName.get(user.name || user.assignee_name) || null;
+};
 export function avatar(user, size = '', withPresence = false) {
   const code = user.dept_code || dept(user.dept_id)?.code;
   const style = code ? deptVars(code) : '--dc1:#8b5cf6;--dc2:#ec4899';
-  return `<span class="avatar ${size}" style="${style}" title="${esc(user.name)}">${esc(initials(user.name || user.assignee_name || '?'))}${withPresence && user.presence ? `<i class="pdot ${user.presence}"></i>` : ''}</span>`;
+  const photo = photoOf(user);
+  const inner = photo && /^av-[a-f0-9]{32}\.(jpg|png|webp)$/.test(photo) ? `<img src="/avatars/${photo}" alt="" loading="lazy" decoding="async">` : esc(initials(user.name || user.assignee_name || '?'));
+  return `<span class="avatar ${size}${photo ? ' has-photo' : ''}" style="${style}" title="${esc(user.name || user.assignee_name || '')}">${inner}${withPresence && user.presence ? `<i class="pdot ${user.presence}"></i>` : ''}</span>`;
 }
 
 // ---------- Dates ----------
