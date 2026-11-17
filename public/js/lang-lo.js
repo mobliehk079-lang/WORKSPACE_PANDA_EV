@@ -596,4 +596,13 @@ export const LO = {
   '{name} called Kaeng!': '{name} ແຄງ!',
   'Shared win: {name}': 'ຊະນະຮ່ວມກັນ: {name}',
   '{name} wins the round!': '{name} ຊະນະຮອບນີ້!',
+  'Call Kaeng': 'ແຄງ',
+  'Round {n}': 'ຮອບທີ {n}',
+  'Points': 'ແຕ້ມ',
+  'Sound on': 'ເປີດສຽງ',
+  'Sound off': 'ປິດສຽງ',
+  'Practice with bots': 'ລອງຫຼິ້ນກັບບອດ',
+  'Add bot': 'ເພີ່ມບອດ',
+  'Remove bot': 'ເອົາບອດອອກ',
+  'Bot': 'ບອດ',
 };

@@ -10,6 +10,7 @@
 // - Empty your hand (by discarding or following) and you win at once.
 // - Kaeng: the caller wins if nobody has a lower total (a tie goes to the caller); otherwise the lowest wins.
 // - When the draw pile runs out, all hands are shown and the lowest total wins (equal lowest share the win).
+// Practice bots (negative ids) can fill empty seats; they play their turns on the server after a short pause.
 import crypto from 'node:crypto';
 import { HttpError } from './logic.js';
 
@@ -42,7 +43,7 @@ function newCode() {
   }
 }
 const log = (room, key, params = {}) => { room.log.push({ key, params, at: Date.now() }); if (room.log.length > 30) room.log.shift(); };
-const touch = (room) => { room.touched = Date.now(); changed(room); };
+const touch = (room) => { room.touched = Date.now(); changed(room); scheduleBot(room); };
 const playerOf = (room, uid) => room.players.find((p) => p.id === uid);
 const nameOf = (room, uid) => playerOf(room, uid)?.name || '?';
 
@@ -83,11 +84,13 @@ export function leaveRoom(uid) {
   const name = nameOf(room, uid);
   room.players = room.players.filter((p) => p.id !== uid);
   delete room.wins[uid];
-  if (!room.players.length) { rooms.delete(room.id); changed(room, [uid]); return; }
-  if (room.hostId === uid) room.hostId = room.players[0].id;
+  // Only bots left (or nobody): close the room
+  if (!room.players.some((p) => !p.bot)) { clearTimeout(room.botTimer); rooms.delete(room.id); changed(room, [uid]); return; }
+  if (room.hostId === uid) room.hostId = room.players.find((p) => !p.bot).id;
   if (room.starter === uid) room.starter = room.hostId;
   if (room.status === 'playing') {
     room.status = 'lobby'; room.game = null;
+    clearTimeout(room.botTimer); room.botTimer = null;
     log(room, '{name} left — the round was cancelled', { name });
   } else log(room, '{name} left', { name });
   room.touched = Date.now();
@@ -100,6 +103,56 @@ export function invite(room, uid, ids) {
   for (const id of fresh) room.invited.add(id);
   touch(room);
   return fresh;
+}
+
+// ---------------------------------------------------------------- practice bots
+let botSeq = 0;
+export function addBot(room, uid) {
+  if (room.hostId !== uid) throw new HttpError(403, 'Only the room host can add bots');
+  if (room.status === 'playing') throw bad('A round is being played. Join when it ends');
+  if (room.players.length >= MAX_PLAYERS) throw bad('This room is full');
+  const used = new Set(room.players.filter((p) => p.bot).map((p) => p.botNo));
+  let n = 1; while (used.has(n)) n++;
+  const bot = { id: -(++botSeq), name: `Bot ${n}`, botNo: n, bot: true, avatar: null, dept_code: null };
+  room.players.push(bot);
+  log(room, '{name} joined', { name: bot.name });
+  touch(room);
+}
+export function removeBot(room, uid, botId) {
+  if (room.hostId !== uid) throw new HttpError(403, 'Only the room host can add bots');
+  if (room.status === 'playing') throw bad('A round is being played. Join when it ends');
+  const b = room.players.find((p) => p.id === botId && p.bot);
+  if (!b) return;
+  room.players = room.players.filter((p) => p !== b);
+  delete room.wins[b.id];
+  if (room.starter === b.id) room.starter = room.hostId;
+  log(room, '{name} left', { name: b.name });
+  touch(room);
+}
+function scheduleBot(room) {
+  if (room.botTimer || room.status !== 'playing' || !rooms.has(room.id)) return;
+  const id = current(room.game);
+  if (!playerOf(room, id)?.bot) return;
+  // A "thinking" pause so people can follow what the bot does
+  room.botTimer = setTimeout(() => { room.botTimer = null; botMove(room, id); }, 900 + Math.random() * 900);
+}
+function botMove(room, id) {
+  if (room.status !== 'playing' || current(room.game) !== id) return;
+  const g = room.game, hand = g.hands[id];
+  try {
+    if (!g.drawn) {
+      if (canFollow(g, id)) return follow(room, id, hand.filter((c) => rankOf(c) === g.last.rank));
+      const total = handTotal(hand);
+      if (total <= 6 || (total <= 12 && Math.random() < 0.4)) return kaeng(room, id);
+      if (!g.deck.length) return kaeng(room, id);
+      return draw(room, id);
+    }
+    // Throw away the rank that removes the most points
+    const groups = {};
+    for (const c of hand) (groups[rankOf(c)] ||= []).push(c);
+    const best = Object.values(groups).sort((a, b) => handTotal(b) - handTotal(a))[0];
+    discard(room, id, best);
+  } catch (e) { console.error('Kaeng bot move failed:', e.message); }
 }
 
 export function startRound(room, uid) {
@@ -211,6 +264,7 @@ function finish(room, winners, reason, by) {
   for (const w of winners) room.wins[w] = (room.wins[w] || 0) + 1;
   room.starter = winners[0];
   room.status = 'ended';
+  clearTimeout(room.botTimer); room.botTimer = null;
   room.game = null; // the round is over: drop the deck and hands
   log(room, winners.length > 1 ? 'Shared win: {name}' : '{name} wins the round!', { name: winners.map((w) => nameOf(room, w)).join(', ') });
   touch(room);
@@ -221,7 +275,7 @@ export function view(room, uid, online = () => true) {
   const g = room.game;
   const out = {
     id: room.id, hostId: room.hostId, status: room.status, round: room.round, me: uid,
-    players: room.players.map((p) => ({ ...p, wins: room.wins[p.id] || 0, online: online(p.id), cards: g ? g.hands[p.id]?.length ?? 0 : 0 })),
+    players: room.players.map((p) => ({ ...p, wins: room.wins[p.id] || 0, online: p.bot || online(p.id), cards: g ? g.hands[p.id]?.length ?? 0 : 0 })),
     invited: [...room.invited],
     log: room.log.slice(-12),
     result: room.result,
@@ -239,4 +293,4 @@ export function view(room, uid, online = () => true) {
 
 export const allRooms = () => [...rooms.values()];
 // Rooms nobody touched for hours are dropped
-setInterval(() => { for (const r of rooms.values()) if (Date.now() - r.touched > IDLE_MS) rooms.delete(r.id); }, 10 * 60_000).unref();
+setInterval(() => { for (const r of rooms.values()) if (Date.now() - r.touched > IDLE_MS) { clearTimeout(r.botTimer); rooms.delete(r.id); } }, 10 * 60_000).unref();

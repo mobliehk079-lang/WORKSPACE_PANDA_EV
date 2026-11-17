@@ -101,6 +101,7 @@ const LO = {
   'There is nothing to follow': 'ບໍ່ມີໄພ່ໃຫ້ໄຫຼ',
   'Follow with cards of the same rank as the last discard': 'ໄຫຼໄດ້ສະເພາະໄພ່ເລກດຽວກັບໃບທີ່ຫາກໍຖິ້ມ',
   'Call Kaeng at the start of your turn, before drawing': 'ແຄງໄດ້ສະເພາະຕອນເລີ່ມຕາ ກ່ອນຈົກໄພ່',
+  'Only the room host can add bots': 'ສະເພາະເຈົ້າຂອງຫ້ອງທີ່ເພີ່ມບອດໄດ້',
 };
 
 export function translate(lang, key, vars = {}) {

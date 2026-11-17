@@ -1237,8 +1237,17 @@ function openLive(req, res, user) {
     }
   });
 }
+/** Players' names/photos come from their profile, so a new profile photo shows at the table straight away */
+function freshPeople(room) {
+  for (const p of room.players) {
+    if (p.bot) continue;
+    const u = db.prepare('SELECT name,avatar FROM users WHERE id=?').get(p.id);
+    if (u) { p.name = u.name; p.avatar = u.avatar || null; }
+  }
+}
 function pushRoom(room, extra = []) {
-  for (const p of room.players) push(p.id, 'kaeng', kaeng.view(room, p.id, isOnline));
+  freshPeople(room);
+  for (const p of room.players) if (!p.bot) push(p.id, 'kaeng', kaeng.view(room, p.id, isOnline));
   for (const uid of extra) { const r = kaeng.roomOfUser(uid); push(uid, 'kaeng', r ? kaeng.view(r, uid, isOnline) : null); }
 }
 kaeng.onChange(pushRoom);
@@ -1248,12 +1257,28 @@ kaeng.onChange(pushRoom);
 // ======================================================================
 const kaengState = (user) => {
   const room = kaeng.roomOfUser(user.id);
+  if (room) freshPeople(room);
   return { room: room ? kaeng.view(room, user.id, isOnline) : null, invites: kaeng.invitesFor(user.id) };
 };
 const myRoom = (user) => { const r = kaeng.roomOfUser(user.id); if (!r) throw bad('You are not in a room'); return r; };
 route('GET', '/api/kaeng', ({ req, user }) => { requireGame(req); return kaengState(user); });
 route('GET', '/api/kaeng/online', ({ req }) => { requireGame(req); return [...live.keys()]; });
-route('POST', '/api/kaeng/create', ({ req, user }) => { requireGame(req); kaeng.createRoom(user); return kaengState(user); });
+route('POST', '/api/kaeng/create', async ({ req, user }) => {
+  requireGame(req);
+  const { bots } = await readJson(req);
+  const room = kaeng.createRoom(user);
+  for (let i = 0; i < Math.min(Number(bots) || 0, kaeng.MAX_PLAYERS - 1); i++) kaeng.addBot(room, user.id);
+  return kaengState(user);
+});
+route('POST', '/api/kaeng/bot', async ({ req, user }) => {
+  requireGame(req);
+  const room = myRoom(user);
+  const { action, id } = await readJson(req);
+  if (action === 'add') kaeng.addBot(room, user.id);
+  else if (action === 'remove') kaeng.removeBot(room, user.id, Number(id));
+  else throw bad('Invalid request data');
+  return kaengState(user);
+});
 route('POST', '/api/kaeng/join', async ({ req, user }) => {
   requireGame(req);
   const { code } = await readJson(req);
