@@ -100,7 +100,7 @@ body.modal-open { overflow: hidden; }
 @media (min-width: 921px) and (max-width: 1180px) {
   :root { --sidebar-w: 84px; }
   .sidebar { padding: 18px 12px; align-items: center; }
-  .sidebar .nl, .nav-label, .nav .dept-dot, .nav a .count { display: none; }
+  .sidebar .nl, .nav-label, .nav .dept-dot, .nav a .count, .nav-lock { display: none; }
   .brand { padding: 4px 0 14px; justify-content: center; }
   .nav { width: 100%; }
   .nav + .nav { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); }

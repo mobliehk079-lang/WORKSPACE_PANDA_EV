@@ -1189,6 +1189,19 @@ route('POST', '/api/chargers/:id/task', async ({ req, user, params }) => {
 });
 
 // ======================================================================
+// Minigame (party card game) — hidden behind a passcode; set MINIGAME_CODE to change it
+// ======================================================================
+const MINIGAME_CODE = String(process.env.MINIGAME_CODE || '00000000');
+route('POST', '/api/minigame/unlock', async ({ req }) => {
+  const th = throttle(req, 'minigame', 20);
+  const { code } = await readJson(req);
+  const a = Buffer.from(String(code ?? '')), b = Buffer.from(MINIGAME_CODE);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) { th.fail(); throw bad('Incorrect passcode'); }
+  th.ok();
+  return { ok: true };
+});
+
+// ======================================================================
 // HTTP server + static files
 // ======================================================================
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };

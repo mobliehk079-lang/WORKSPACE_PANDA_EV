@@ -83,6 +83,7 @@ const LO = {
   'This charger already has an open repair task': 'ຕູ້ສາກນີ້ມີວຽກສ້ອມແປງທີ່ຍັງບໍ່ແລ້ວຢູ່',
   'Please choose a JPG, PNG or WebP image': 'ກະລຸນາເລືອກຮູບ JPG, PNG ຫຼື WebP',
   'This request was already handled or cancelled': 'ຄຳຂໍນີ້ຖືກຈັດການ ຫຼື ຍົກເລີກໄປແລ້ວ',
+  'Incorrect passcode': 'ລະຫັດບໍ່ຖືກຕ້ອງ',
 };
 
 export function translate(lang, key, vars = {}) {

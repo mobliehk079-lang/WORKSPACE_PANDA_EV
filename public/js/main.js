@@ -15,6 +15,7 @@ import { openTask } from './views/taskModal.js';
 import { renderReview, setBadge as setReviewBadge } from './views/review.js';
 import { renderReport } from './views/report.js';
 import { renderMonitor } from './views/monitor.js';
+import { renderGame } from './views/game.js';
 
 const app = $('#app');
 let cleanup = null;
@@ -123,7 +124,9 @@ function navHtml() {
       ${link('#/kpi', 'chart', p.viewTeamKpi ? t('Employee KPI') : t('My KPI'))}
       ${p.monitor ? link('#/monitor', 'zap', t('Monitor')) : ''}
     </nav>
-    ${p.manageUsers ? `<div class="nav-label">${t('Administration')}</div><nav class="nav">${link('#/users', 'shield', t('Users'), '<span class="count" id="pending-count" hidden></span>')}</nav>` : ''}`;
+    ${p.manageUsers ? `<div class="nav-label">${t('Administration')}</div><nav class="nav">${link('#/users', 'shield', t('Users'), '<span class="count" id="pending-count" hidden></span>')}</nav>` : ''}
+    <div class="nav-label">${t('Fun')}</div>
+    <nav class="nav">${link('#/game', 'cards', t('Minigame'), `<span class="nav-lock">${icon('lock')}</span>`)}</nav>`;
 }
 
 function renderShell() {
@@ -405,6 +408,7 @@ const ROUTES = [
   [/^#\/report$/, renderReport],
   [/^#\/monitor$/, renderMonitor],
   [/^#\/users$/, renderUsers],
+  [/^#\/game$/, renderGame],
 ];
 
 async function route() {
