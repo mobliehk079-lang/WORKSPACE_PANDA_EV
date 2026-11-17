@@ -224,9 +224,11 @@ export function follow(room, uid, cards) {
 function play(room, uid, cards, isFollow) {
   const g = room.game;
   g.hands[uid] = takeCards(g.hands[uid], cards);
+  const victim = isFollow ? g.last.by : null;
   g.last = { by: uid, cards: [...cards], rank: rankOf(cards[0]) };
   g.discarded += cards.length;
-  log(room, isFollow ? '{name} followed with {n} card(s)' : '{name} discarded {n} card(s)', { name: nameOf(room, uid), n: cards.length, cards: [...cards] });
+  log(room, isFollow ? '{name} followed with {n} card(s)' : '{name} discarded {n} card(s)',
+    { name: nameOf(room, uid), n: cards.length, cards: [...cards], by: uid, ...(isFollow ? { to: victim } : {}) });
   if (!g.hands[uid].length) return finish(room, [uid], isFollow ? 'follow-out' : 'out', uid);
   nextTurn(room);
   touch(room);

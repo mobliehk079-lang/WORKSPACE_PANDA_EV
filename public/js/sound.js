@@ -82,6 +82,14 @@ export const sfx = {
     [660, 880, 1320].forEach((f, i) => tone({ at: 0.04 + i * 0.06, freq: f, dur: 0.22, type: 'triangle', gain: 0.16 }));
     tone({ at: 0.04, freq: 1800, to: 3600, dur: 0.25, type: 'sine', gain: 0.05 });
   },
+  /** Lai bomb: falling whistle, then an explosion when it lands (lands ~0.75s later) */
+  bomb() {
+    if (!ready()) return;
+    tone({ freq: 1500, to: 420, dur: 0.72, type: 'sine', gain: 0.08, attack: 0.05 });
+    noise({ at: 0.74, dur: 0.9, freq: 1200, sweep: 70, type: 'lowpass', q: 0.8, gain: 0.9, attack: 0.004 });
+    tone({ at: 0.74, freq: 110, to: 30, dur: 0.7, type: 'sine', gain: 0.8, attack: 0.003 });
+    noise({ at: 0.74, dur: 0.25, freq: 3000, q: 0.4, gain: 0.35 });
+  },
   /** Kaeng! — drum hit and a short brassy chord */
   kaeng() {
     if (!ready()) return;

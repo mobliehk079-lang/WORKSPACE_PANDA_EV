@@ -58,12 +58,16 @@ export function kaengScreen(body, lock) {
     const fresh = i >= 0 ? r.log.slice(i + 1) : r.log.slice(-1);
     heard.sig = sigs[sigs.length - 1];
     let delay = 0, started = false;
+    const fx = [];
     for (const l of fresh) {
       const k = l.key;
       if (k.includes('started')) { sfx.shuffle(); started = true; }
       else if (k.includes('drew a card')) sfx.draw();
       else if (k.includes('discarded')) for (let n = 0; n < (l.params.n || 1); n++) sfx.card(n * 0.07);
-      else if (k.includes('followed')) sfx.lai();
+      else if (k.includes('followed')) {
+        sfx.lai();
+        if (l.params.to != null) { sfx.bomb(); fx.push(() => throwBomb(l.params.by, l.params.to)); }
+      }
       else if (k.includes('called Kaeng')) { sfx.kaeng(); delay = 900; }
       else if (k.includes('wins the round') || k.includes('Shared win')) {
         const won = r.result?.winners.includes(r.me);
@@ -72,6 +76,40 @@ export function kaengScreen(body, lock) {
     }
     if (r.status === 'playing' && r.turn === r.me && heard.turn !== r.me) setTimeout(() => sfx.turn(), started ? 1600 : 350);
     heard.turn = r.status === 'playing' ? r.turn : null;
+    return fx;
+  }
+
+  // Lai: a bomb arcs from the player who followed to the player who was followed, then explodes
+  function throwBomb(fromId, toId) {
+    const from = $(`[data-seat="${fromId}"] .avatar`, body), to = $(`[data-seat="${toId}"] .avatar`, body);
+    if (!from || !to || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+    const x0 = a.left + a.width / 2, y0 = a.top + a.height / 2, x1 = b.left + b.width / 2, y1 = b.top + b.height / 2;
+    const dx = x1 - x0, dy = y1 - y0, lift = Math.max(120, Math.abs(dx) * 0.35);
+    const bomb = document.createElement('div');
+    bomb.className = 'kg-bomb'; bomb.textContent = '💣';
+    bomb.style.left = `${x0}px`; bomb.style.top = `${y0}px`;
+    document.body.appendChild(bomb);
+    const steps = 12, frames = [];
+    for (let i = 0; i <= steps; i++) {
+      const p = i / steps;
+      frames.push({ transform: `translate(-50%, -50%) translate(${dx * p}px, ${dy * p - lift * 4 * p * (1 - p)}px) rotate(${p * 540}deg) scale(${1 + 0.5 * Math.sin(p * Math.PI)})` });
+    }
+    bomb.animate(frames, { duration: 750, easing: 'cubic-bezier(.35,.1,.6,1)', fill: 'forwards' }).onfinish = () => { bomb.remove(); explode(x1, y1, toId); };
+  }
+  function explode(x, y, toId) {
+    const boom = document.createElement('div');
+    boom.className = 'kg-boom';
+    boom.style.left = `${x}px`; boom.style.top = `${y}px`;
+    boom.innerHTML = '<span class="kg-boom-flash"></span><span class="kg-boom-ring"></span><span class="kg-boom-txt">💥</span>'
+      + Array.from({ length: 14 }, (_, i) => `<i style="--a:${(i / 14) * 360 + Math.random() * 20}deg;--d:${60 + Math.random() * 70}px;--s:${6 + Math.random() * 8}px"></i>`).join('');
+    document.body.appendChild(boom);
+    setTimeout(() => boom.remove(), 1100);
+    const seat = $(`[data-seat="${toId}"]`, body);
+    seat?.classList.add('hit'); setTimeout(() => seat?.classList.remove('hit'), 900);
+    const felt = $('.kt-felt', body);
+    felt?.classList.add('shake'); setTimeout(() => felt?.classList.remove('shake'), 500);
+    navigator.vibrate?.([40, 30, 60]);
   }
   const muteBtn = () => `<button class="kg-mute" id="kg-mute" title="${isMuted() ? t('Sound off') : t('Sound on')}" aria-label="${isMuted() ? t('Sound off') : t('Sound on')}" aria-pressed="${!isMuted()}">${isMuted() ? '🔇' : '🔊'}</button>`;
   const bindMute = () => $('#kg-mute', body)?.addEventListener('click', (e) => {
@@ -85,11 +123,12 @@ export function kaengScreen(body, lock) {
 
   // ---------------------------------------------------------------- views
   function render() {
-    sounds(data.room);
+    const fx = sounds(data.room) || [];
     const r = data.room;
-    if (!r) return lobby();
-    if (r.status === 'playing') return table(r);
-    return roomView(r);
+    if (!r) lobby();
+    else if (r.status === 'playing') table(r);
+    else roomView(r);
+    fx.forEach((f) => f());
   }
 
   function lobby() {
@@ -242,7 +281,7 @@ export function kaengScreen(body, lock) {
         </div>
       </div>
       <div class="kt-me ${mine ? 'turn' : ''}">
-        <div class="kt-me-who">${face(me)}<div><b>${esc(me.name)}</b><small>${icon('trophy')} ${me.wins}</small></div></div>
+        <div class="kt-me-who" data-seat="${r.me}">${face(me)}<div><b>${esc(me.name)}</b><small>${icon('trophy')} ${me.wins}</small></div></div>
         <div class="kt-hand" id="kg-hand" style="--n:${r.hand.length}">${r.hand.map((c, i) => cardHtml(c, { sel: sel.includes(c), attr: `data-c="${c}" role="button" tabindex="0" aria-pressed="${sel.includes(c)}" style="--i:${i - (r.hand.length - 1) / 2}"` })).join('')}</div>
         <div class="kt-score" title="${t('Your points')}"><small>${t('Points')}</small><b>${r.total}</b></div>
       </div>
