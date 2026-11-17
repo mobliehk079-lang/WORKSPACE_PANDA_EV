@@ -16,6 +16,7 @@ import {
   membersWithLoad, sortByAvailability, workloadFor, kpiFor, kpiSeries, weekStart,
 } from './src/logic.js';
 import { translate } from './src/i18n.js';
+import * as kaeng from './src/kaeng.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -1192,13 +1193,95 @@ route('POST', '/api/chargers/:id/task', async ({ req, user, params }) => {
 // Minigame (party card game) — hidden behind a passcode; set MINIGAME_CODE to change it
 // ======================================================================
 const MINIGAME_CODE = String(process.env.MINIGAME_CODE || '00000000');
+const sessionToken = (req) => parseCookies(req.headers.cookie)[COOKIE] || '';
+/** Sessions that entered the passcode (memory only — after a restart the passcode is asked again) */
+const gameUnlocked = new Set();
 route('POST', '/api/minigame/unlock', async ({ req }) => {
   const th = throttle(req, 'minigame', 20);
   const { code } = await readJson(req);
   const a = Buffer.from(String(code ?? '')), b = Buffer.from(MINIGAME_CODE);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) { th.fail(); throw bad('Incorrect passcode'); }
   th.ok();
+  gameUnlocked.add(sessionToken(req));
   return { ok: true };
+});
+const requireGame = (req) => { if (!gameUnlocked.has(sessionToken(req))) throw new HttpError(423, 'Enter the Minigame passcode first'); };
+
+// ======================================================================
+// Live updates (Server-Sent Events): one stream per open app tab. Used for game invites and Kaeng rooms.
+// ======================================================================
+const live = new Map(); // user id → Set of open responses
+const isOnline = (uid) => !!live.get(uid)?.size;
+function push(uid, event, data) {
+  for (const res of live.get(uid) || []) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+function openLive(req, res, user) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.write('retry: 3000\n\n');
+  if (!live.has(user.id)) live.set(user.id, new Set());
+  live.get(user.id).add(res);
+  const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+  // Someone came back: let their room show them online again
+  const room = kaeng.roomOfUser(user.id);
+  if (room) pushRoom(room);
+  req.on('close', () => {
+    clearInterval(ping);
+    const set = live.get(user.id);
+    set?.delete(res);
+    if (set && !set.size) {
+      live.delete(user.id);
+      const r = kaeng.roomOfUser(user.id);
+      if (r) pushRoom(r);
+      // Gone for good (closed the app): free their seat so the room is not stuck
+      setTimeout(() => { if (!isOnline(user.id)) kaeng.leaveRoom(user.id); }, 90_000);
+    }
+  });
+}
+function pushRoom(room, extra = []) {
+  for (const p of room.players) push(p.id, 'kaeng', kaeng.view(room, p.id, isOnline));
+  for (const uid of extra) { const r = kaeng.roomOfUser(uid); push(uid, 'kaeng', r ? kaeng.view(r, uid, isOnline) : null); }
+}
+kaeng.onChange(pushRoom);
+
+// ======================================================================
+// Kaeng card game — rooms live only in memory (src/kaeng.js); nothing is saved to the database
+// ======================================================================
+const kaengState = (user) => {
+  const room = kaeng.roomOfUser(user.id);
+  return { room: room ? kaeng.view(room, user.id, isOnline) : null, invites: kaeng.invitesFor(user.id) };
+};
+const myRoom = (user) => { const r = kaeng.roomOfUser(user.id); if (!r) throw bad('You are not in a room'); return r; };
+route('GET', '/api/kaeng', ({ req, user }) => { requireGame(req); return kaengState(user); });
+route('GET', '/api/kaeng/online', ({ req }) => { requireGame(req); return [...live.keys()]; });
+route('POST', '/api/kaeng/create', ({ req, user }) => { requireGame(req); kaeng.createRoom(user); return kaengState(user); });
+route('POST', '/api/kaeng/join', async ({ req, user }) => {
+  requireGame(req);
+  const { code } = await readJson(req);
+  kaeng.joinRoom(str(code, 10), user);
+  return kaengState(user);
+});
+route('POST', '/api/kaeng/leave', ({ req, user }) => { requireGame(req); kaeng.leaveRoom(user.id); return kaengState(user); });
+route('POST', '/api/kaeng/invite', async ({ req, user }) => {
+  requireGame(req);
+  const room = myRoom(user);
+  const { ids } = await readJson(req);
+  if (!Array.isArray(ids)) throw bad('Invalid request data');
+  const valid = ids.map(Number).filter((id) => Number.isInteger(id) && id !== user.id && activeUser(id)).slice(0, 20);
+  for (const id of kaeng.invite(room, user.id, valid)) push(id, 'invite', { room: room.id, from: user.name, game: 'kaeng' });
+  return kaengState(user);
+});
+route('POST', '/api/kaeng/start', ({ req, user }) => { requireGame(req); kaeng.startRound(myRoom(user), user.id); return kaengState(user); });
+route('POST', '/api/kaeng/action', async ({ req, user }) => {
+  requireGame(req);
+  const room = myRoom(user);
+  const { action, cards } = await readJson(req);
+  const list = Array.isArray(cards) ? cards.map(Number) : [];
+  if (action === 'draw') kaeng.draw(room, user.id);
+  else if (action === 'discard') kaeng.discard(room, user.id, list);
+  else if (action === 'follow') kaeng.follow(room, user.id, list);
+  else if (action === 'kaeng') kaeng.kaeng(room, user.id);
+  else throw bad('Invalid request data');
+  return kaengState(user);
 });
 
 // ======================================================================
@@ -1222,6 +1305,11 @@ const server = http.createServer(async (req, res) => {
       const user = getUser(req);
       if (!user) throw new HttpError(401, 'Please log in');
       return serveUpload(req, res, user, Number(fm[1]), url.searchParams.get('download') === '1');
+    }
+    if (url.pathname === '/api/live' && req.method === 'GET') {
+      const user = getUser(req);
+      if (!user) throw new HttpError(401, 'Please log in');
+      return openLive(req, res, user);
     }
     const am = /^\/avatars\/([\w.-]+)$/.exec(url.pathname);
     if (am && req.method === 'GET') {

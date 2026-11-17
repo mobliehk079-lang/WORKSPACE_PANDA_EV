@@ -164,7 +164,27 @@ function renderShell() {
   pollNotifications();
   clearInterval(pollTimer);
   pollTimer = setInterval(pollNotifications, 20000);
+  startLive();
 }
+
+// ======================================================================
+// Live updates (game invites, Kaeng rooms) — one EventSource for the whole app
+// ======================================================================
+let liveSrc = null;
+function startLive() {
+  liveSrc?.close();
+  if (!window.EventSource) return;
+  liveSrc = new EventSource('/api/live');
+  liveSrc.addEventListener('kaeng', (e) => { let d = null; try { d = JSON.parse(e.data); } catch { return; } window.dispatchEvent(new CustomEvent('tw:kaeng', { detail: d })); });
+  liveSrc.addEventListener('invite', (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+    window.dispatchEvent(new CustomEvent('tw:kaeng-invite', { detail: d }));
+    toast(`<b>${esc(t('{name} invited you to play Kaeng', { name: d.from }))}</b><br><small>${esc(t('Tap to join room {code}', { code: d.room }))}</small>`, 'info', {
+      ms: 12000, onClick: () => { try { sessionStorage.setItem('pev-kaeng-join', d.room); } catch { /* */ } location.hash = '#/game/kaeng'; window.dispatchEvent(new CustomEvent('tw:kaeng-join')); },
+    });
+  });
+}
+const stopLive = () => { liveSrc?.close(); liveSrc = null; };
 
 const meCardHtml = () => { const me = S.me; return `<button class="me-card" id="me-btn" aria-haspopup="menu" title="${t('My profile')}">${avatar(me, '', true)}<div class="meta nl"><b>${esc(me.name)}</b><small>${roleBadge(me.role)} ${me.dept_code ? esc(deptShort(dept(me.dept_code))) : ''}</small></div></button>`; };
 const bindMeCard = () => { $('#me-btn').onclick = (e) => userMenu(e); };
@@ -193,7 +213,7 @@ function userMenu(e) {
     ev.stopPropagation();
     const a = ev.target.closest('[data-a]')?.dataset.a; if (!a) return;
     m.remove();
-    if (a === 'out') { await api('/api/logout', { method: 'POST' }).catch(() => {}); S.me = null; history.replaceState(null, '', '#/'); showLogin(); }
+    if (a === 'out') { stopLive(); await api('/api/logout', { method: 'POST' }).catch(() => {}); S.me = null; history.replaceState(null, '', '#/'); showLogin(); }
     if (a === 'profile') openProfile();
     if (a === 'pw') openProfile({ focusPassword: true });
   });
@@ -408,7 +428,7 @@ const ROUTES = [
   [/^#\/report$/, renderReport],
   [/^#\/monitor$/, renderMonitor],
   [/^#\/users$/, renderUsers],
-  [/^#\/game$/, renderGame],
+  [/^#\/game(?:\/(kaeng))?$/, renderGame],
 ];
 
 async function route() {
@@ -441,7 +461,7 @@ async function route() {
   }
 }
 window.addEventListener('hashchange', route);
-window.addEventListener('tw:unauth', () => { if (S.me) { S.me = null; showLogin(t('Your session has expired. Please log in again')); } });
+window.addEventListener('tw:unauth', () => { if (S.me) { stopLive(); S.me = null; showLogin(t('Your session has expired. Please log in again')); } });
 
 // ======================================================================
 // Boot

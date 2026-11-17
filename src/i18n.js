@@ -84,6 +84,23 @@ const LO = {
   'Please choose a JPG, PNG or WebP image': 'ກະລຸນາເລືອກຮູບ JPG, PNG ຫຼື WebP',
   'This request was already handled or cancelled': 'ຄຳຂໍນີ້ຖືກຈັດການ ຫຼື ຍົກເລີກໄປແລ້ວ',
   'Incorrect passcode': 'ລະຫັດບໍ່ຖືກຕ້ອງ',
+  'Enter the Minigame passcode first': 'ກະລຸນາໃສ່ລະຫັດມິນິເກມກ່ອນ',
+  'Room not found. It may have closed': 'ບໍ່ພົບຫ້ອງ ອາດຈະປິດໄປແລ້ວ',
+  'A round is being played. Join when it ends': 'ກຳລັງຫຼິ້ນຢູ່ ກະລຸນາເຂົ້າຮ່ວມເມື່ອຈົບຮອບ',
+  'This room is full': 'ຫ້ອງນີ້ເຕັມແລ້ວ',
+  'You are not in this room': 'ທ່ານບໍ່ໄດ້ຢູ່ໃນຫ້ອງນີ້',
+  'You are not in a room': 'ທ່ານຍັງບໍ່ໄດ້ເຂົ້າຫ້ອງ',
+  'Only the room host can start': 'ສະເພາະເຈົ້າຂອງຫ້ອງທີ່ເລີ່ມເກມໄດ້',
+  'At least 2 players are needed': 'ຕ້ອງມີຜູ້ຫຼິ້ນຢ່າງໜ້ອຍ 2 ຄົນ',
+  'The round has not started': 'ຮອບນີ້ຍັງບໍ່ໄດ້ເລີ່ມ',
+  'It is not your turn': 'ຍັງບໍ່ທັນຮອດຕາຂອງທ່ານ',
+  'Choose 1 to 4 cards of the same rank': 'ເລືອກໄພ່ເລກດຽວກັນ 1 ຫາ 4 ໃບ',
+  'You do not have those cards': 'ທ່ານບໍ່ມີໄພ່ເຫຼົ່ານັ້ນ',
+  'You already drew. Discard a card': 'ທ່ານຈົກແລ້ວ ກະລຸນາຖິ້ມໄພ່',
+  'Draw a card first': 'ກະລຸນາຈົກໄພ່ກ່ອນ',
+  'There is nothing to follow': 'ບໍ່ມີໄພ່ໃຫ້ໄຫຼ',
+  'Follow with cards of the same rank as the last discard': 'ໄຫຼໄດ້ສະເພາະໄພ່ເລກດຽວກັບໃບທີ່ຫາກໍຖິ້ມ',
+  'Call Kaeng at the start of your turn, before drawing': 'ແຄງໄດ້ສະເພາະຕອນເລີ່ມຕາ ກ່ອນຈົກໄພ່',
 };
 
 export function translate(lang, key, vars = {}) {
