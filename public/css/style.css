@@ -812,6 +812,56 @@ button.srow:hover { background: var(--glass-2); }
 .sl-bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--glass-strong); border-top: 1px solid var(--glass-border); }
 .sl-bar .spacer { flex: 1; }
 .sl-n { font-variant-numeric: tabular-nums; color: var(--text-2); min-width: 60px; text-align: center; }
+.sl-bar [data-a="play"].on { background: var(--accent-grad); color: #fff; }
+/* auto-play progress: a thin line filling up until the next slide */
+.sl-prog { height: 3px; background: transparent; }
+.sl-prog i { display: block; height: 100%; width: 0; background: var(--accent-grad); }
+.sl-prog.run i { animation: slProg var(--d, 10s) linear both; }
+@keyframes slProg { to { width: 100%; } }
+.sl-stats b small { font-size: .45em; font-weight: 400; color: var(--muted); margin-left: 2px; }
+.sl-stats .good b { color: var(--ok); } .sl-stats .warn b { color: var(--warn); }
+
+/* Monitor — Present */
+.msl-mix { width: 100%; max-width: 1100px; }
+.msl-mixbar { display: flex; gap: 3px; height: 18px; border-radius: 99px; overflow: hidden; background: var(--hairline); }
+.msl-mixbar i { min-width: 6px; }
+.msl-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; margin-top: 12px; color: var(--text-2); }
+.msl-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.msl-legend i { width: 12px; height: 12px; border-radius: 50%; }
+.msl-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.msl-ic { flex: none; width: 2.4em; height: 2.4em; border-radius: .7em; display: grid; place-items: center; color: #fff; background: var(--sc); }
+.msl-ic svg { width: 1.3em; height: 1.3em; }
+.msl-count { font-size: 1.3em; font-weight: 700; padding: 0 .6em; border-radius: 99px; background: var(--glass-strong); font-variant-numeric: tabular-nums; }
+.msl-issues { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26em), 1fr)); gap: 12px; }
+.msl-issue { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--sc) 10%, var(--glass)); border: 1.5px solid color-mix(in srgb, var(--sc) 45%, transparent); }
+.msl-issue .grow { flex: 1; min-width: 0; }
+.msl-it { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.msl-it b { font-size: 1.15em; font-weight: 600; }
+.msl-issue p { margin: 6px 0 4px; color: var(--text); overflow-wrap: anywhere; }
+.msl-issue small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: .82em; }
+.msl-issue small svg { width: 1em; height: 1em; }
+.msl-allgood { min-height: 60%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; color: var(--ok); }
+.msl-allgood svg { width: 6em; height: 6em; }
+.msl-allgood h2 { color: var(--text); margin: 0; }
+.msl-st .grow { flex: 1; min-width: 0; }
+.msl-st small { color: var(--text-2); font-size: .95em; }
+.msl-st .st-av { width: 3.2em; height: 3.2em; font-size: 1em; }
+.msl-sc { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.msl-ok { display: flex; align-items: center; gap: 10px; }
+.msl-ok b { font-size: 1.8em; font-variant-numeric: tabular-nums; } .msl-ok b.bad { color: var(--bad); }
+.msl-ok .bar { width: 9em; height: 10px; border-radius: 99px; background: var(--hairline); overflow: hidden; }
+.msl-ok .bar i { display: block; height: 100%; border-radius: 99px; }
+.msl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12em), 1fr)); gap: 14px; }
+.msl-grid .chg { cursor: default; min-height: 7.5em; padding: 1em 1.1em; border-radius: 18px; gap: 6px; }
+.msl-grid .chg:hover { transform: none; box-shadow: none; }
+.msl-grid .chg-top b { font-size: 1.5em; }
+.msl-grid .chg-top .icon { width: 1.4em; height: 1.4em; }
+.msl-grid .chg-st { font-size: 1.05em; font-weight: 600; }
+.msl-grid .chg small { font-size: .85em; -webkit-line-clamp: 3; }
+.msl-log { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26em), 1fr)); gap: 6px 18px; }
+.msl-log .mon-log { font-size: 1em; background: var(--glass); }
+.msl-log .mon-log small { font-size: .82em; }
+@media (max-width: 640px) { .msl-st { flex-wrap: wrap; } .msl-sc { align-items: flex-start; width: 100%; } .sl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .sl-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sl-stats b { font-size: 1.7em; } }
 
 /* Print / Save as PDF */

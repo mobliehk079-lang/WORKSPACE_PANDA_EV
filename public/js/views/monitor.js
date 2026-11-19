@@ -1,9 +1,10 @@
 // Monitor — charging stations and their chargers: who sees a problem updates it, IT fixes it
 import {
-  S, api, esc, $, $$, icon, toast, toastErr, setTitle, segmented, openModal, confirmDialog, emptyState, timeAgo, fmtDateTime, debounce,
+  S, api, esc, $, $$, icon, toast, toastErr, setTitle, segmented, openModal, confirmDialog, emptyState, timeAgo, fmtDate, fmtDateTime, ymd, debounce,
   STATUS_LABEL, runCountUps, t,
 } from '../utils.js';
 import { openTask } from './taskModal.js';
+import { slideshow } from '../slides.js';
 
 export const CHARGER = {
   ok: { label: t('Working'), color: '#10b981' },
@@ -37,6 +38,7 @@ export async function renderMonitor(page) {
       <div class="search"><span>${icon('search')}</span><input class="input" id="mo-q" type="search" placeholder="${t('Search station…')}"></div>
       <div class="spacer"></div>
       <span class="muted hide-sm" id="mo-upd" style="font-size:.82rem"></span>
+      <button class="btn" id="mo-present">${icon('present')} ${t('Present')}</button>
       ${S.perms.manageStations ? `<button class="btn btn-primary" id="mo-add">${icon('plus')} ${t('Add station')}</button>` : ''}
     </div>
     <div id="mo-stats" class="stats"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
@@ -47,6 +49,7 @@ export async function renderMonitor(page) {
   const st = { f: 'all', q: '', open: new Set(), first: true };
   let data = { stations: [], recent: [], can: {} };
   let loadedAt = null;
+  let pres = null; // the open presentation, refreshed together with the board
 
   const draw = () => {
     const all = data.stations;
@@ -87,12 +90,18 @@ export async function renderMonitor(page) {
       : `<div class="muted" style="font-size:.9rem">${t('No updates yet')}</div>`;
     $('#mo-upd', page).textContent = loadedAt ? t('Updated {t}', { t: loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }) : '';
   };
-  const load = async () => { data = await api('/api/monitor'); loadedAt = new Date(); draw(); };
+  const load = async () => {
+    data = await api('/api/monitor'); loadedAt = new Date(); draw();
+    if (pres?.open) pres.update(presentSpecs(data, loadedAt));
+  };
   const findCharger = (id) => { for (const s of data.stations) { const c = s.chargers.find((x) => x.id === id); if (c) return [c, s]; } return []; };
 
   segmented($('#mo-f', page), (v) => { st.f = v; draw(); });
   $('#mo-q', page).addEventListener('input', debounce((e) => { st.q = e.target.value.trim(); draw(); }, 150));
   $('#mo-add', page)?.addEventListener('click', () => stationForm(null, load));
+  $('#mo-present', page).addEventListener('click', () => {
+    pres = slideshow(presentSpecs(data, loadedAt), { autoplay: 12_000, onClose: () => { pres = null; } });
+  });
   page.addEventListener('click', async (e) => {
     const tog = e.target.closest('[data-toggle]');
     if (tog) { const id = Number(tog.closest('[data-sid]').dataset.sid); if (st.open.has(id)) st.open.delete(id); else st.open.add(id); return draw(); }
@@ -113,6 +122,80 @@ export async function renderMonitor(page) {
   const on = () => load().catch(() => {});
   window.addEventListener('tw:changed', on);
   return () => { clearInterval(timer); window.removeEventListener('tw:changed', on); };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Present: the board as full-screen slides for a meeting or a wall screen (see slides.js).
+// Overview → chargers needing attention → one slide per station → latest updates.
+// Refreshed with the board every 30 s, staying on the same slide.
+// ---------------------------------------------------------------------------------------------
+const ORDER = { fault: 0, offline: 1, maintenance: 2, ok: 3 };
+const pageNo = (k, n) => (n > 1 ? `<span class="sl-page">${k + 1} / ${n}</span>` : '');
+const shortName = (name) => name.replace(/^Panda EV\s*—\s*/, '');
+const nowText = (d) => (d ? `${fmtDate(ymd(d), { weekday: true, year: true })} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '');
+
+function presentSpecs(data, at) {
+  const all = [...data.stations].sort((a, b) => (a.status !== 'active') - (b.status !== 'active'));
+  const active = all.filter((s) => s.status === 'active');
+  const chg = active.flatMap((s) => s.chargers);
+  const count = (st) => chg.filter((c) => c.status === st).length;
+  const ok = count('ok'), nProblem = count('fault') + count('offline'), nFix = count('maintenance');
+  const avail = chg.length ? Math.round((ok / chg.length) * 100) : 0;
+  const specs = [];
+
+  // 1 — Overview: headline numbers and how every charger at open stations stands right now
+  const mix = Object.entries(CHARGER).map(([k, v]) => ({ v, n: count(k) })).filter((x) => x.n);
+  specs.push({ total: 0, page: () => `<div class="sl-title"><span class="sl-logo">${icon('zap')}</span><h1>${t('Monitor')}</h1><h2>${t('Charging stations and chargers')}</h2><p>${esc(nowText(at))}</p>
+    <div class="sl-stats">
+      <div><b>${active.length}<small>/${all.length}</small></b><span>${t('Stations open')}</span></div>
+      <div><b>${ok}<small>/${chg.length}</small></b><span>${t('Chargers working')}</span></div>
+      <div class="${!chg.length ? '' : avail >= 90 ? 'good' : avail < 70 ? 'bad' : 'warn'}"><b>${chg.length ? avail + '%' : '–'}</b><span>${t('Availability')}</span></div>
+      <div class="${nProblem ? 'bad' : 'good'}"><b>${nProblem}</b><span>${t('Problems')}</span></div>
+      <div class="${nFix ? 'warn' : ''}"><b>${nFix}</b><span>${t('Under repair')}</span></div></div>
+    ${chg.length ? `<div class="msl-mix"><div class="msl-mixbar">${mix.map((x) => `<i style="flex:${x.n};background:${x.v.color}"></i>`).join('')}</div>
+      <div class="msl-legend">${mix.map((x) => `<span><i style="background:${x.v.color}"></i>${x.v.label} <b>${x.n}</b></span>`).join('')}</div></div>` : ''}</div>` });
+
+  // 2 — What needs attention: every broken / offline / in-repair charger at an open station
+  const issues = active.flatMap((s) => s.chargers.filter((c) => c.status !== 'ok').map((c) => ({ c, s })))
+    .sort((a, b) => ORDER[a.c.status] - ORDER[b.c.status] || String(b.c.updated_at).localeCompare(String(a.c.updated_at)));
+  const head2 = (k, n) => `<div class="sl-head"><span class="msl-ic" style="--sc:${issues.length ? '#ef4444' : '#10b981'}">${icon(issues.length ? 'alert' : 'checkCircle')}</span>
+    <h2>${t('Chargers needing attention')}</h2><span class="msl-count">${issues.length}</span>${pageNo(k, n)}</div>`;
+  specs.push(issues.length ? { total: issues.length, page: (k, n, a, b) => `${head2(k, n)}<div class="msl-issues">${issues.slice(a, b).map(({ c, s }) => {
+    const st = CHARGER[c.status];
+    return `<div class="msl-issue" style="--sc:${st.color}"><span class="msl-ic">${icon('zap')}</span>
+      <div class="grow"><div class="msl-it"><b>${esc(shortName(s.name))} · ${esc(c.code)}</b>${pill(st)}</div>
+        ${c.note ? `<p>${esc(c.note)}</p>` : ''}
+        <small>${c.task_id && c.task_status ? `${icon('kanban')} ${esc(c.task_title || t('Repair task'))} — ${STATUS_LABEL[c.task_status]} · ` : ''}${esc(c.updated_by_name || '')}${c.updated_at ? ` · ${timeAgo(c.updated_at)}` : ''}</small></div></div>`;
+  }).join('')}</div>` }
+    : { total: 0, page: () => `${head2(0, 1)}<div class="msl-allgood">${icon('checkCircle')}<h2>${t('No problems — every charger is working')}</h2></div>` });
+
+  // 3 — One slide per station with all its chargers
+  for (const s of all) {
+    const n = s.chargers.length, good = working(s), bad = problems(s);
+    const head = (k, pn) => `<div class="sl-head msl-st"><span class="st-av" style="--c:${SWATCH[data.stations.indexOf(s) % SWATCH.length]}">PE</span>
+      <div class="grow"><h2>${esc(s.name)}</h2><small>${esc(s.address)}</small></div>
+      <div class="msl-sc"><div>${pill(STATION[s.status])}${bad ? ` <span class="status-pill" style="--sc:#ef4444">${t('{n} problems', { n: bad })}</span>` : ''}</div>
+        <div class="msl-ok"><b class="${bad ? 'bad' : ''}">${good}/${n}</b><span class="bar"><i style="width:${n ? Math.round((good / n) * 100) : 0}%;background:${bad ? '#f59e0b' : '#10b981'}"></i></span></div></div>${pageNo(k, pn)}</div>`;
+    specs.push(n ? { total: n, page: (k, pn, a, b) => `${head(k, pn)}<div class="msl-grid">${s.chargers.slice(a, b).map(slideTile).join('')}</div>` }
+      : { total: 0, page: () => head(0, 1) });
+  }
+
+  // 4 — Latest updates
+  const recent = data.recent || [];
+  if (recent.length) specs.push({ total: recent.length, page: (k, n, a, b) => `<div class="sl-head"><span class="msl-ic" style="--sc:#6366f1">${icon('clock')}</span><h2>${t('Latest updates')}</h2>${pageNo(k, n)}</div>
+    <div class="msl-log">${recent.slice(a, b).map((l) => `<div class="mon-log"><span class="dot" style="background:${CHARGER[l.to_status].color}"></span>
+      <div style="min-width:0;flex:1"><b>${esc(shortName(l.station_name))} · ${esc(l.charger_code)}</b> ${pill(CHARGER[l.to_status])}
+      ${l.note ? `<small class="note">${esc(l.note)}</small>` : ''}<small class="muted">${esc(l.user_name || '')} · ${timeAgo(l.created_at)}</small></div></div>`).join('')}</div>` });
+  return specs;
+}
+
+function slideTile(c) {
+  const s = CHARGER[c.status];
+  return `<div class="chg ${c.status}" style="--sc:${s.color}">
+    <span class="chg-top">${icon('zap')}<b>${esc(c.code)}</b>${c.task_id && c.task_status !== 'done' ? `<span class="chg-task">${icon('kanban')}</span>` : ''}</span>
+    <span class="chg-st">${s.label}</span>
+    ${c.note ? `<small class="note">${esc(c.note)}</small>` : c.model ? `<small class="muted">${esc(c.model)}</small>` : ''}
+  </div>`;
 }
 
 function chargerTile(c) {
