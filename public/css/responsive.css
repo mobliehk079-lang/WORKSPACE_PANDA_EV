@@ -96,8 +96,8 @@ body.modal-open { overflow: hidden; }
   .g-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* iPad landscape & small laptops (921–1180px): compact icon rail */
-@media (min-width: 921px) and (max-width: 1180px) {
+/* iPad landscape (921–1180px, touch): compact icon rail. With a mouse the hover rail below is used. */
+@media (min-width: 921px) and (max-width: 1180px) and (hover: none) {
   :root { --sidebar-w: 84px; }
   .sidebar { padding: 18px 12px; align-items: center; }
   .sidebar .nl, .nav-label, .nav .dept-dot, .nav a .count, .nav-lock { display: none; }
@@ -110,6 +110,8 @@ body.modal-open { overflow: hidden; }
   .sidebar-foot { width: 100%; }
   .me-card { padding: 6px; justify-content: center; background: transparent; border: 0; }
   .menu.up { left: 0; right: auto; width: 260px; }
+}
+@media (min-width: 921px) and (max-width: 1180px) {
   .main { padding-left: 22px; padding-right: 22px; }
   .topbar::before { inset: 0 -22px; }
   .board { grid-template-columns: repeat(4, minmax(240px, 1fr)); }
@@ -243,3 +245,27 @@ body.modal-open { overflow: hidden; }
 }
 .pwreq-card { margin-bottom: 16px; }
 .pwreq-card .card-title { padding: 8px 14px 0; }
+
+/* Computers with a mouse (> 920px): the sidebar is a slim icon rail that slides open over the
+   page while the pointer is on it (or keyboard focus is inside it), then closes again.
+   Icons keep the same position open or closed, so nothing jumps under the pointer. */
+@media (min-width: 921px) and (hover: hover) and (pointer: fine) {
+  :root { --sidebar-w: 84px; --sidebar-open: 264px; }
+  .sidebar { width: 84px; padding: 18px 12px; overflow-x: hidden; transition: width .32s var(--ease) .12s, box-shadow .32s, background .32s; }
+  .sidebar:hover, .sidebar:has(:focus-visible), .sidebar:has(.menu) { width: var(--sidebar-open); background: var(--glass-strong); box-shadow: var(--shadow-lg); transition-delay: .12s; }
+  .sidebar:not(:hover):not(:has(:focus-visible)):not(:has(.menu)) { transition-delay: .25s; }
+  .sidebar > * { width: calc(var(--sidebar-open) - 24px); flex-shrink: 0; }
+  .brand { padding: 6px 9px 18px; }
+  .nav a { padding: 10px 20px; white-space: nowrap; }
+  .nav a:hover { transform: none; }
+  .nav a.active::before { left: -12px; }
+  .nav .dept-dot { position: absolute; left: 6px; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0; border-radius: 3px; }
+  .nav a .count { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
+  .sidebar:not(:hover):not(:has(:focus-visible)):not(:has(.menu)) .nav a .count { right: auto; left: 44px; top: 4px; transform: none; font-size: .64rem; padding: 0 5px; }
+  .me-card { padding: 10px 11px; }
+  /* labels fade with the width */
+  .sidebar .nl, .nav-label, .nav-lock, .me-card .meta { transition: opacity .2s; white-space: nowrap; }
+  .sidebar:not(:hover):not(:has(:focus-visible)):not(:has(.menu)) :is(.nl, .nav-label, .nav-lock, .me-card .meta) { opacity: 0; }
+  .sidebar:not(:hover):not(:has(:focus-visible)):not(:has(.menu)) .me-card { background: transparent; border-color: transparent; }
+  .menu.up { left: 0; right: auto; width: calc(var(--sidebar-open) - 24px); }
+}

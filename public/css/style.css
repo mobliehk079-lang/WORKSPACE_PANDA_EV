@@ -1172,3 +1172,16 @@ button.srow:hover { background: var(--glass-2); }
   .kt-pills { gap: 6px; }
   .kt-pill { padding: 8px 13px; font-size: .9rem; }
 }
+
+/* ---------- Panda cursor + sound menu ---------- */
+html.panda-cursor, html.panda-cursor body { cursor: url("/img/cursor-panda.svg") 1 1, auto; }
+html.panda-cursor :is(button, a[href], [role="button"], summary, label, select, .li, .chg, .chg-opt, .mon-log[data-cid], .station .srow, .g-row-label, .cal .day, .ev, .rank-table tbody tr, .chart .hit, .donut circle.seg, .fcard, .dropzone, .assignee, .check-item, .notif, .toast, .rv-item, .rv-mini, .rp-task, .kt-hand .kc, input[type="checkbox"], input[type="radio"]):not(:disabled) {
+  cursor: url("/img/cursor-panda-pointer.svg") 1 1, pointer;
+}
+html.panda-cursor :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, [contenteditable="true"]) { cursor: text; }
+.fx-menu { min-width: 220px; }
+.fx-menu button .icon { width: 17px; height: 17px; color: var(--text-2); }
+.fx-sw { margin-left: auto; width: 34px; height: 20px; border-radius: 99px; background: var(--hairline); position: relative; transition: background .2s; flex: none; }
+.fx-sw i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .2s var(--ease); }
+.fx-sw.on { background: var(--accent-grad); }
+.fx-sw.on i { transform: translateX(14px); }

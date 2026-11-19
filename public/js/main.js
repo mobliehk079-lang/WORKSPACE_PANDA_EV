@@ -16,6 +16,7 @@ import { renderReview, setBadge as setReviewBadge } from './views/review.js';
 import { renderReport } from './views/report.js';
 import { renderMonitor } from './views/monitor.js';
 import { renderGame } from './views/game.js';
+import { uiClick, isClickOn, setClickOn } from './sound.js';
 
 const app = $('#app');
 let cleanup = null;
@@ -33,6 +34,42 @@ function setTheme(th) {
   window.dispatchEvent(new CustomEvent('tw:theme'));
 }
 const toggleTheme = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+
+// ======================================================================
+// Click sound + panda cursor (each remembered per browser, both on by default)
+// ======================================================================
+const CURSOR_KEY = 'pev-cursor';
+let pandaCursor = (() => { try { return localStorage.getItem(CURSOR_KEY) !== 'off'; } catch { return true; } })();
+const applyCursor = () => document.documentElement.classList.toggle('panda-cursor', pandaCursor);
+applyCursor();
+// Anything you can press makes a soft click. The card games skip it: they have their own sounds.
+const CLICKABLE = 'button, a[href], [role="button"], [data-cid], [data-sid], .li, summary, label, select, input[type="checkbox"], input[type="radio"]';
+document.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || location.hash.startsWith('#/game')) return;
+  const el = e.target.closest(CLICKABLE);
+  if (el && !el.disabled && !el.closest('[disabled]')) uiClick();
+}, true);
+function bindFx() {
+  const b = $('#fx');
+  const draw = () => { b.innerHTML = icon(isClickOn() ? 'volume' : 'volumeX'); };
+  draw();
+  b.onclick = (e) => {
+    e.stopPropagation();
+    const ex = $('.menu', b.parentElement); if (ex) return ex.remove();
+    const row = (k, ic, label, on) => `<button data-fx="${k}">${icon(ic)}${label}<span class="fx-sw ${on ? 'on' : ''}"><i></i></span></button>`;
+    const m = h(`<div class="menu glass fx-menu">${row('click', 'volume', t('Click sound'), isClickOn())}${row('cursor', 'mouse', t('Panda cursor'), pandaCursor)}</div>`);
+    b.parentElement.appendChild(m);
+    m.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const k = ev.target.closest('[data-fx]')?.dataset.fx; if (!k) return;
+      if (k === 'click') setClickOn(!isClickOn());
+      else { pandaCursor = !pandaCursor; try { localStorage.setItem(CURSOR_KEY, pandaCursor ? 'on' : 'off'); } catch { /* */ } applyCursor(); }
+      $('.fx-sw', ev.target.closest('[data-fx]')).classList.toggle('on', k === 'click' ? isClickOn() : pandaCursor);
+      draw();
+    });
+    setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }));
+  };
+}
 const langSwitch = () => `<div class="lang-switch" role="group" aria-label="Language"><button data-lang="lo" class="${lang === 'lo' ? 'active' : ''}">ລາວ</button><button data-lang="en" class="${lang === 'en' ? 'active' : ''}">EN</button></div>`;
 const bindLang = (root) => $$('[data-lang]', root).forEach((b) => b.addEventListener('click', () => { if (b.dataset.lang !== lang) setLang(b.dataset.lang); }));
 
@@ -145,6 +182,7 @@ function renderShell() {
         <div class="spacer"></div>
         <div class="rel"><button class="btn presence-btn" id="presence"></button></div>
         <span class="hide-sm">${langSwitch()}</span>
+        <div class="rel"><button class="btn btn-icon" id="fx" aria-label="${t('Sound & cursor')}" title="${t('Sound & cursor')}"></button></div>
         <button class="btn btn-icon" data-theme-ic id="theme" aria-label="${t('Toggle theme')}"></button>
         <div class="rel"><button class="btn btn-icon bell" id="bell" aria-label="${t('Notifications')}">${icon('bell')}<span class="badge-dot" id="unread" hidden></span></button></div>
       </header>
@@ -152,6 +190,7 @@ function renderShell() {
     </main></div>`;
   $('#theme').onclick = toggleTheme;
   setTheme(document.documentElement.dataset.theme);
+  bindFx();
   bindLang(app);
   const sb = $('#sidebar'), mb = $('#mback');
   const closeMenu = () => { sb.classList.remove('open'); mb.classList.remove('show'); };

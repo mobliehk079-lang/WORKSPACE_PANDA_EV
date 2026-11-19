@@ -125,3 +125,21 @@ export const sfx = {
     noise({ dur: 0.025, freq: 5000, q: 2, gain: 0.18 });
   },
 };
+
+// ---------------------------------------------------------------------------------------------
+// UI click sound for the whole app — its own on/off switch, separate from the card-game sounds
+// ---------------------------------------------------------------------------------------------
+const CLICK_KEY = 'pev-click';
+let clickOn = (() => { try { return localStorage.getItem(CLICK_KEY) !== 'off'; } catch { return true; } })();
+export const isClickOn = () => clickOn;
+export function setClickOn(on) {
+  clickOn = on;
+  try { localStorage.setItem(CLICK_KEY, on ? 'on' : 'off'); } catch { /* */ }
+  if (on) { unlock(); uiClick(); }
+}
+/** A soft, short "pop" — quiet enough to hear on every click without getting tiring */
+export function uiClick() {
+  if (!clickOn || !unlock() || ctx.state !== 'running') return;
+  tone({ freq: 1250 + Math.random() * 80, to: 820, dur: 0.06, gain: 0.09, attack: 0.003 });
+  noise({ dur: 0.018, freq: 4200, q: 1.5, gain: 0.06 });
+}
