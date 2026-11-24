@@ -82,6 +82,17 @@ Menu **Monitor** (under ທີມ ແລະ ຜົນງານ): every Panda EV 
 - The page refreshes itself every 30 seconds.
 - The first start after this update adds the 6 current stations. Chargers that were not working start as *Offline* — set their real status in Monitor.
 
+## Minigame: Panda Jump (3D)
+
+Menu **Minigame** (passcode) → **ແພນດ້າກະໂດດ / Panda Jump**: a 3D platformer with the Panda EV characters — floating islands, ~265 m long, 7 checkpoints, 70 lightning bolts, ending at the PANDA EV charging station.
+
+- **Play alone**, or **Play with colleagues**: create a room (code like `JAB12`), invite people (they get a notification) or share the code. Up to 8 players in the same world.
+- The host presses **Start race** → 3-2-1 countdown, everyone starts on the beach, the server times the race; results show time, knock-outs 💥 and bolts.
+- **Push** (F / ✋): knock friends away — a fall within 5 s of being pushed counts as a knock-out for the pusher. Jump on a friend's head to bounce higher.
+- Controls — computer: WASD/arrows, Space (twice = double jump), F push, drag to turn the camera; phone/iPad: left side joystick, ⤒ jump, ✋ push, drag on the right for the camera (goes full screen; landscape is best); gamepads work too.
+- Rooms live only in memory (like the card games). Positions travel over a WebSocket at `/api/jump/ws` (built in, no npm packages); Railway supports WebSockets as is.
+- Three.js r170 is vendored in `public/vendor/three/` (MIT); the models are in `public/models/panda/` (spec: `panda_ev_3d/README.md`).
+
 ## Languages
 
 UI text is written in English in the code and translated in `public/js/lang-lo.js` (Lao, default). Server messages are translated in `src/i18n.js` based on the `X-Lang` header. To change a Lao wording, edit the value next to its English key.
@@ -106,6 +117,9 @@ src/seed.js          demo data (Lao)
 public/js/i18n.js    language switch, Lao dates
 public/js/lang-lo.js Lao UI dictionary
 public/js/views/report.js  weekly report, Present slides, CSV export
+public/js/jump/      Panda Jump: engine.js (game, physics, multiplayer), level.js (course), rig.js (panda animation)
+src/jump/rooms.js    Panda Jump rooms, races, pushes (memory only)
+src/ws.js            minimal WebSocket server (no dependencies)
 public/css/          style.css (glass UI) + responsive.css (devices)
 data/                database + uploaded files (created automatically)
 ```

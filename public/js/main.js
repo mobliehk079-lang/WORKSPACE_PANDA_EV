@@ -218,9 +218,15 @@ function startLive() {
   liveSrc.addEventListener('invite', (e) => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
     window.dispatchEvent(new CustomEvent('tw:cards-invite', { detail: d }));
-    const game = d.game === 'tienlen' ? 'tienlen' : 'kaeng';
-    toast(`<b>${esc(t('{name} invited you to play {game}', { name: d.from, game: game === 'tienlen' ? t('Tien Len') : t('Kaeng') }))}</b><br><small>${esc(t('Tap to join room {code}', { code: d.room }))}</small>`, 'info', {
-      ms: 12000, onClick: () => { try { sessionStorage.setItem('pev-cards-join', d.room); } catch { /* */ } location.hash = `#/game/${game}`; window.dispatchEvent(new CustomEvent('tw:cards-join')); },
+    const game = d.game === 'tienlen' || d.game === 'jump' ? d.game : 'kaeng';
+    const title = { kaeng: t('Kaeng'), tienlen: t('Tien Len'), jump: t('Panda Jump') }[game];
+    toast(`<b>${esc(t('{name} invited you to play {game}', { name: d.from, game: title }))}</b><br><small>${esc(t('Tap to join room {code}', { code: d.room }))}</small>`, 'info', {
+      ms: 12000,
+      onClick: () => {
+        try { sessionStorage.setItem(game === 'jump' ? 'pev-jump-join' : 'pev-cards-join', d.room); } catch { /* */ }
+        location.hash = `#/game/${game}`;
+        window.dispatchEvent(new CustomEvent(game === 'jump' ? 'tw:jump-join' : 'tw:cards-join'));
+      },
     });
   });
 }
@@ -468,7 +474,7 @@ const ROUTES = [
   [/^#\/report$/, renderReport],
   [/^#\/monitor$/, renderMonitor],
   [/^#\/users$/, renderUsers],
-  [/^#\/game(?:\/(kaeng|tienlen))?$/, renderGame],
+  [/^#\/game(?:\/(kaeng|tienlen|jump))?$/, renderGame],
 ];
 
 async function route() {

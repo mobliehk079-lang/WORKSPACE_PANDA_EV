@@ -17,6 +17,8 @@ import {
 } from './src/logic.js';
 import { translate } from './src/i18n.js';
 import * as cards from './src/cards/rooms.js';
+import * as jump from './src/jump/rooms.js';
+import { acceptWebSocket, rejectUpgrade } from './src/ws.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -1305,14 +1307,72 @@ route('POST', '/api/cards/action', async ({ req, user }) => {
 });
 
 // ======================================================================
+// Panda Jump (3D platformer) — rooms live only in memory (src/jump/); positions travel over a WebSocket (/api/jump/ws)
+// ======================================================================
+const jumpPerson = (id) => db.prepare('SELECT name,avatar FROM users WHERE id=?').get(id);
+const jumpState = (user) => {
+  const room = jump.roomOfUser(user.id);
+  if (room) jump.refreshPeople(room, jumpPerson);
+  return { room: room ? jump.view(room, user.id) : null, invites: jump.invitesFor(user.id) };
+};
+const chOf = (v) => (Number.isInteger(Number(v)) ? Number(v) : 0);
+route('GET', '/api/jump', ({ req, user }) => { requireGame(req); return jumpState(user); });
+route('POST', '/api/jump/create', async ({ req, user }) => {
+  requireGame(req);
+  const { ch } = await readJson(req);
+  jump.createRoom(user, chOf(ch));
+  return jumpState(user);
+});
+route('POST', '/api/jump/join', async ({ req, user }) => {
+  requireGame(req);
+  const { code, ch } = await readJson(req);
+  jump.joinRoom(str(code, 10), user, chOf(ch));
+  return jumpState(user);
+});
+route('POST', '/api/jump/leave', ({ req, user }) => { requireGame(req); jump.leaveRoom(user.id); return jumpState(user); });
+route('POST', '/api/jump/invite', async ({ req, user }) => {
+  requireGame(req);
+  const room = jump.roomOfUser(user.id);
+  if (!room) throw bad('You are not in a room');
+  const { ids } = await readJson(req);
+  if (!Array.isArray(ids)) throw bad('Invalid request data');
+  const valid = ids.map(Number).filter((id) => Number.isInteger(id) && id !== user.id && activeUser(id)).slice(0, 20);
+  for (const id of jump.invite(room, user.id, valid)) push(id, 'invite', { room: room.id, from: user.name, game: 'jump' });
+  return jumpState(user);
+});
+
+/** Same-origin check for the WebSocket handshake (browsers always send Origin there) */
+function sameOrigin(req) {
+  let o = ''; try { o = new URL(req.headers.origin).host; } catch { return false; }
+  const hosts = [req.headers.host, ...String(req.headers['x-forwarded-host'] || '').split(',')].map((h) => String(h || '').trim()).filter(Boolean);
+  return hosts.includes(o);
+}
+function onUpgrade(req, socket, head) {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname !== '/api/jump/ws') return rejectUpgrade(socket, 404, 'Not Found');
+  if (!sameOrigin(req)) return rejectUpgrade(socket, 403, 'Forbidden');
+  const user = getUser(req);
+  if (!user) return rejectUpgrade(socket, 401, 'Unauthorized');
+  if (!gameUnlocked.has(sessionToken(req))) return rejectUpgrade(socket, 423, 'Locked');
+  const ws = acceptWebSocket(req, socket, head);
+  if (ws) jump.attach(user, ws);
+}
+
+// ======================================================================
 // HTTP server + static files
 // ======================================================================
-const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
+const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.mjs': 'text/javascript; charset=utf-8', '.glb': 'model/gltf-binary' };
 function serveStatic(req, res, pathname) {
   let file = path.normalize(path.join(PUBLIC_DIR, decodeURIComponent(pathname)));
   if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(PUBLIC_DIR, 'index.html');
-  res.writeHead(200, { 'Content-Type': STATIC_TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+  // Revalidate with Last-Modified so big files (3D models, three.js) are not downloaded again on every visit
+  const mtime = fs.statSync(file).mtime;
+  mtime.setMilliseconds(0);
+  const since = Date.parse(req.headers['if-modified-since'] || '');
+  const headers = { 'Cache-Control': 'no-cache', 'Last-Modified': mtime.toUTCString(), 'X-Content-Type-Options': 'nosniff' };
+  if (since && mtime.getTime() <= since) { res.writeHead(304, headers); return res.end(); }
+  res.writeHead(200, { 'Content-Type': STATIC_TYPES[path.extname(file)] || 'application/octet-stream', ...headers });
   fs.createReadStream(file).pipe(res);
 }
 
@@ -1362,6 +1422,7 @@ const server = http.createServer(async (req, res) => {
     if (req.readable) req.resume();
   }
 });
+server.on('upgrade', onUpgrade);
 server.listen(PORT, () => console.log(`\n  ⚡ PANDA EV WORKSPACE  →  http://localhost:${PORT}   (data: ${DATA_DIR})\n`));
 // Railway sends SIGTERM on redeploy — close the database cleanly
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(); try { db.close(); } catch { /* */ } process.exit(0); });
